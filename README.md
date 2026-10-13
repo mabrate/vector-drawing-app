@@ -36,9 +36,17 @@ npm test
 
 This is a prototype: rotation supports a draggable handle and a 15-degree button; alignment uses the last-selected object or the artboard. No region-based shape builder, layers panel, text, or offline service worker yet. Import is deliberately limited to vector SVGs and embedded PNG/JPEG/WebP/GIF images and rejects linked/active content. Browser recovery is best-effort localStorage and shared by users of the same browser profile. New SVG drawings are landscape US Letter with a transparent background. Test Safari and touch gestures on actual classroom iPads before relying on it for a lesson.
 
+## Reversible shape building
+
+Select two closed vector shapes and choose **Union**, **Subtract**, or **Intersect**. Subtract cuts the front shape out of the back shape. The result moves, resizes, rotates, duplicates, and changes style as one object. **Break Apart** restores the two original pieces with their original styles at the combined object's current transform. Nested combinations break apart one level at a time. Break apart before editing component nodes; combined outlines do not expose node editing. Image subtraction uses its existing crop workflow.
+
+Each combined object exports as **one SVG path**. Holes and disconnected pieces become subpaths inside that path; the original overlapping boundaries do not export as additional cutting paths. Component geometry is stored in a non-rendering SVG `metadata` element, so reopening a saved SVG in Vector Lab preserves Break Apart. Browser recovery and undo/redo preserve it too. Other software can remove this metadata; the merged outline remains usable, but restoring its components then requires the original Vector Lab SVG copy. Existing merged paths without component data cannot be broken back into their original pieces.
+
 ## Editing aids
 
 Fill and stroke open an inline palette with hex entry and hue/saturation/lightness sliders. Pen curves show their handles while drawing. Smooth nodes link opposite handles by default, preserving the opposite handle's length as you rotate the tangent; turn off **Keep smooth handles linked** for independent editing. **Corner**, **Round**, and **Symmetric** convert selected anchors.
+
+**Snap** also makes new rectangles and ellipses square or circular when their width and height are close during dragging. Drag farther from equal proportions to release this snap; turn Snap off for free proportions.
 
 **Snap** enables an 8-screen-pixel tolerance for object edges, centers, artboard edges/centers, and path anchors. Pink guides show alignment. Moving objects displays purple gap measurements in the selected units; a shape between two others can snap to equal spacing. Guides are temporary and never included in SVG exports.
 
