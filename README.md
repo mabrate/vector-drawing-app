@@ -76,7 +76,9 @@ Text fields keep their usual select/copy/paste behavior. Pasted artwork is offse
 - Combine **Ctrl+Shift** for constrained drawing/resizing from the center. Modifier keys can be changed during a drag.
 - In Select mode, drag the green round handle above the selection to rotate freely around its center. The status bar shows the rotation angle. Multiple selected shapes rotate together. Rotation supports touch, undo, SVG saving, and reopening; the Rotate 15° button remains available.
 
-Press **-** to zoom out and **=** (or **+**) to zoom in while working on the canvas. These keys keep their normal behavior in text and dimension fields.
+Press **-** to zoom out and **=** (or **+**) to zoom in while working on the canvas. Zoom stays anchored under the cursor while it is over the canvas, and uses the center when no cursor is over the canvas. These keys keep their normal behavior in text and dimension fields.
+
+The top toolbar stays one fixed-height row. Selection, node, text, and image controls extend it horizontally; scroll the toolbar to reach additional controls without moving the canvas.
 
 ## Precise positioning
 
@@ -88,7 +90,7 @@ Select artwork and use **X / Y → Apply position** to place the selection's geo
 
 On an iPad, drag two fingers across the canvas to pan; spread/pinch to zoom around your fingers. Adding the second finger cancels any unfinished shape move, resize, rotation, node edit, or new pen point from that gesture. Lift both fingers before drawing again.
 
-On a trackpad, scroll with two fingers to pan horizontally or vertically over the canvas. Trackpad pinch zooms around the pointer when the browser reports it as a Ctrl+wheel gesture. Navigation does not change artwork or create undo steps.
+On a trackpad, scroll with two fingers to pan horizontally or vertically over the canvas. Trackpad pinch zooms around the pointer when the browser reports it as a Ctrl+wheel gesture. Navigation does not change artwork or create undo steps. Undo and Redo preserve the current zoom and pan. After manual zooming or panning, toolbar and viewport resizes keep the view center and scale; use Fit or Return to page to reframe.
 
 ## Top toolbar and style controls
 
@@ -117,7 +119,7 @@ The top toolbar opens **Fill and Outline**, **Align and Distribute**, and **Dime
 
 Alignment defaults to **Visible edges**, including centered stroke thickness and joins. Choose **Paths** for geometric bounds. Single shapes align to the page; multiple shapes align to the last selected. Distribution requires three shapes and offers equal horizontal/vertical gaps and equally spaced left/right/top/bottom edges or centers. Outer objects stay fixed; a crowded span can result in negative gaps (overlap).
 
-The Nodes tool opens its settings automatically. Click an anchor, Shift-click or enable **Select multiple nodes** to add anchors, or drag empty space to box-select anchors on selected paths. Cmd/Ctrl+A selects all anchors on those paths. Selected nodes are larger, bright pink squares with dark outlines. Dragging selected anchors moves them together; arrow keys nudge them in the page units.
+The Nodes tool opens its settings automatically. Click an anchor, Shift-click or enable **Select multiple nodes** to add anchors, or drag empty space to box-select anchors on selected paths. Cmd/Ctrl+A selects all anchors on those paths. Selected nodes are larger, bright pink squares with dark outlines. Dragging selected anchors moves them together; arrow keys nudge them in the page units. Anchors, curve handles, hit testing, and node selection boxes follow the transformed path geometry, including rotated/scaled paths and compound paths, at any zoom.
 
 - **Corner:** first changes smooth/symmetric handles to independent handles without moving them; clicking Corner again removes both handles.
 - **Round:** keeps opposite handles on one tangent, allowing different lengths.
@@ -135,8 +137,68 @@ Click empty artboard or background space to clear the selection, including with 
 
 In Nodes mode, image objects do not intercept clicks or node-selection boxes. Select a path, then drag over the image or inside the path to select enclosed nodes; Shift adds to the current node selection. Use Select mode to select or move an image.
 
+### Blob brush
+
+Choose **Blob** (shortcut **L**), pick a **Fill** color and **Brush size (px)**, then draw. **Smoothing** defaults to 100% and ranges from 0–200%; increase it for steadier curves and fewer nodes, or decrease it to retain more hand-drawn detail. A tap makes a round dot. On release, the brush creates a closed, filled vector path and unites closed paths touched by the stroke into that shape, using the brush color. Separate shapes, open outlines, and images stay separate. Compound holes are retained wherever the brush has not painted over them.
+
+Mouse, pen, and touch work. A cancelled stroke or a two-finger gesture discards the preview. Undo restores all merged artwork in one step; the result supports node editing and SVG saving. Brush size is in document pixels and remains consistent while zooming.
+
+### Paint bucket
+
+Choose **Bucket** (shortcut **B**), set the **Fill** color, and click an enclosed vector area. The bucket creates a separate editable path without changing the original artwork. It supports traced bitmap paths, holes and overlapping shapes, Undo/Redo, and SVG saving. Choose Select to move or edit the resulting fill.
+
+Closed vector shapes retain their original curves. Enclosures formed by several open paths use a bounded, document-resolution trace, so those fills approximate the boundary. Gaps must be closed; unbounded areas are rejected. Raster images are not bucket boundaries—trace an image into paths first.
+
 ### Dropper
 
 Choose **Dropper** in the left toolbar. Click to sample a single point, or drag from the center of a circle to its edge to average all rendered pixels inside it. The circle is visible while dragging; release applies the color. Choose **Fill** or **Outline** in the dropper settings. Selected vector shapes receive the sampled color; otherwise it becomes the color for the next shape. Images remain unchanged.
 
 Sampling combines visible images and vector artwork against the white artboard, including transparency as displayed. It excludes selection handles and guides, and ignores pixels outside the artboard. Results are opaque RGB colors; the circle never appears in saved artwork. A second finger cancels sampling and pans/zooms normally.
+
+### Trace an image to editable paths
+
+Select one image, then choose **Trace image** beside the crop and background removal controls. The modal compares the visible image with its vector preview. **Convert to paths** replaces the image in place; Undo restores it. Tracing runs locally in a browser worker, so adjusting settings or canceling does not upload the image or change the artwork.
+
+The default **Black and white / Simple** trace creates black filled shapes with the white background left empty. Inner openings become actual holes in the compound path. Threshold controls which tones count as dark; **Trace light areas instead** reverses this choice. **Remove small specks** removes tiny islands and holes, with the number removed shown below the preview.
+
+The detail settings use these application limits:
+
+| Setting | Maximum nodes | Maximum outlines, including holes |
+| --- | ---: | ---: |
+| Simple (default) | 1,000 | 120 |
+| Balanced | 2,000 | 240 |
+| Detailed | 5,000 | 500 |
+
+Simple is the starting point for student Tinkercad and cutting projects. The tracer removes redundant nodes and simplifies contours to the selected node budget. If the remaining trace exceeds either limit, conversion stays disabled: increase speck removal, reduce colors, or choose a higher limit. Large regions are never silently discarded to fit a budget. These limits are this app's defaults, not documented Tinkercad limits.
+
+**Colors** reduces the image to at most 2, 4, 8, 12, or 16 colors, creating a separate editable path for each used color. **Leave white empty** is enabled initially. This mode is useful for illustrations and game assets.
+
+Tracing includes the image's current crop, shape intersections/subtractions, and background transparency. Position, scale, and rotation are baked into the new geometry. Save SVG after conversion to export ordinary closed paths, with no embedded image, clipping mask, or outline stroke from the traced image. The trace is a simplified 2D silhouette, not an STL generator, photographic reconstruction, or centerline trace. Check the size and small features in your destination app before fabrication; an actual Tinkercad import is not covered by the automated tests.
+
+#### Refine a silhouette without raising the threshold
+
+Enable **Fill enclosed holes** to turn interior white patches into solid geometry while leaving the outside background alone. It is off by default to preserve genuine cutouts. Transparent image cutouts remain empty unless explicitly included with a brush. An opening connected to the outside background is not an enclosed hole: close the gap or paint the missing area with Include.
+
+Under **Touch up the trace**, choose a tool and paint on either preview:
+
+- **Include brush:** add missing parts, regardless of threshold.
+- **Exclude brush:** remove shadows or unwanted areas, including shadows attached to the subject.
+- **Remove spot:** click a connected traced shape to remove it. Use this for disconnected artifacts; an attached shadow belongs to the subject's connected shape and should be brushed out instead.
+- **Erase marks:** restore automatic tracing in a painted area.
+
+Green marks show inclusions and pink marks show exclusions on the source preview. The source pixels stay unchanged. Corrections remain in place when threshold, noise removal, color mode, or detail changes; explicit exclusions remain empty even with hole filling enabled. **Undo edit** reverses the last stroke or spot removal (up to 12 edits); **Clear marks** removes manual corrections, and can itself be undone. **Reset all** restores the initial settings and clears correction history. Touch/pointer cancellation discards an unfinished stroke. Canceling the modal leaves the artwork unchanged; applying creates the corrected closed vector paths with the existing complexity limits and editor Undo.
+
+
+#### Smooth tracing for flat color artwork
+
+**Edge smoothing** defaults to 70%. It softens pixel stair steps and fits editable Bézier curves while retaining sharp corners. Shared color boundaries are fitted together so adjoining colors meet. The preview and applied/exported paths use the same curve geometry, and curve anchors still count toward the existing node limits.
+
+For a flat illustration with 5–10 colors, start with **Colors**, a maximum of **8** or **12** colors, and smoothing around **70%**. The palette prefers stable color regions and consolidates rare near-identical edge shades instead of turning antialiasing into extra color bands. Edge cleanup also avoids assigning blended border pixels to unrelated palette colors. Small color flecks are replaced with their surrounding region rather than cut out as holes.
+
+Lower smoothing to retain tiny angular details; **0%** keeps straight-line tracing. Higher Detail increases the sampling resolution and node budget; it is separate from edge smoothing. Original SVG artwork can also be opened directly with **Open SVG**, avoiding raster tracing entirely.
+
+### Group and ungroup objects
+
+Select two or more objects and click the **Group** icon in the top selection toolbar, or press **Ctrl+G** / **Cmd+G**. Groups move, resize, rotate, and duplicate as one object while preserving their members' geometry, colors, and stacking order. Groups can contain shapes, text, images, or other groups.
+
+Select a group and click **Ungroup**, or press **Ctrl+Shift+G** / **Cmd+Shift+G**, to release one level of members in place. Ungroup nested groups again to reach their individual objects. Ungroup before editing individual path nodes. Image crop masks and reversible shape operations stay intact. Both actions support editor Undo, browser recovery, SVG save/open, and copying. Shortcuts are ignored while typing or while a dialog is open.
