@@ -4,31 +4,33 @@ import {createTraceRefinement} from './trace-refinement.js';
 export function installImageTracing({getImage,apply,say}){
   const dialog=document.createElement('dialog');dialog.id='trace-dialog';dialog.setAttribute('aria-labelledby','trace-title');
   dialog.innerHTML=`<div class="trace-heading"><div><h2 id="trace-title">Trace image to paths</h2><span>Editable shapes for making and designing</span></div><button id="trace-close" aria-label="Close image tracing">×</button></div>
-  <p>Start with a simple silhouette for Tinkercad or cutting. Black becomes solid; white is left empty. Try color tracing for game art and illustrations.</p>
+  <p>Choose Solid silhouette or Cutout outline for a whole subject, Black and white for dark details, or Colors for game art and illustrations.</p>
   <div class="trace-controls">
-    <label>Trace mode<select id="trace-mode"><option value="mono">Black and white</option><option value="color">Colors</option></select></label>
-    <label>Detail / complexity<select id="trace-preset"><option value="simple">Simple · up to 1,000 nodes</option><option value="balanced">Balanced · up to 2,000 nodes</option><option value="detailed">Detailed · up to 5,000 nodes</option></select></label>
+    <label>Trace mode<select id="trace-mode"><option value="mono">Black and white</option><option value="silhouette">Solid silhouette</option><option value="outline">Cutout outline</option><option value="color">Colors</option></select></label>
+    <label>Detail / complexity<select id="trace-preset"><option value="simple">Simple · 1,000</option><option value="balanced">Balanced · 2,000</option><option value="detailed">Detailed · 5,000</option></select></label>
     <label id="trace-threshold-control">Darkness threshold<div class="trace-range"><input id="trace-threshold" type="range" min="0" max="255" value="128"><output id="trace-threshold-value">50%</output></div></label>
     <label id="trace-colors-control" hidden>Maximum colors<select id="trace-colors"><option value="2">2 colors</option><option value="4" selected>4 colors</option><option value="8">8 colors</option><option value="12">12 colors</option><option value="16">16 colors</option></select></label>
-    <label>Edge smoothing<div class="trace-range"><input id="trace-smoothing" type="range" min="0" max="100" value="70"><output id="trace-smoothing-value">70%</output></div></label>
+    <label id="trace-background-control" hidden>Background tolerance<div class="trace-range"><input id="trace-background" type="range" min="0" max="100" value="20"><output id="trace-background-value">20%</output></div></label>
+    <label id="trace-outline-control" hidden>Outline width<div class="trace-range"><input id="trace-outline" type="range" min="0.5" max="5" step="0.25" value="1.5"><output id="trace-outline-value">1.5%</output></div></label>
+    <label title="Low values preserve pixel detail. High values remove small bumps and fit broader curves while protecting corners.">Edge smoothing<div class="trace-range"><input id="trace-smoothing" type="range" min="0" max="100" value="70"><output id="trace-smoothing-value">70%</output></div></label>
     <label>Remove small specks<div class="trace-range"><input id="trace-noise" type="range" min="0" max="100" value="12"><output id="trace-noise-value">12</output></div></label>
   </div>
-  <div class="trace-options"><label id="trace-invert-control"><input id="trace-invert" type="checkbox"> Trace light areas instead</label><label id="trace-white-control" hidden><input id="trace-white" type="checkbox" checked> Leave white empty</label><label id="trace-holes-control"><input id="trace-holes" type="checkbox"> Fill enclosed holes</label><button id="trace-reset">Reset all</button></div>
+  <div class="trace-options"><label id="trace-invert-control"><input id="trace-invert" type="checkbox"> Trace light areas instead</label><label id="trace-white-control" hidden><input id="trace-white" type="checkbox" checked> Leave white empty</label><label id="trace-holes-control"><input id="trace-holes" type="checkbox"> Fill enclosed holes</label><label id="trace-stack-control" hidden title="Overlap color layers to prevent pale seams. Turn off for separate color regions."><input id="trace-stack" type="checkbox" checked> Stack colors to hide seams</label><button id="trace-use-silhouette" hidden>Try solid silhouette</button><button id="trace-reset">Reset all</button></div>
   <fieldset class="trace-refinement"><legend>Touch up the trace</legend><div class="trace-refinement-controls"><label>Tool <select id="trace-brush-mode"><option value="view">View only</option><option value="include">Include brush</option><option value="exclude">Exclude brush</option><option value="spot">Remove spot</option><option value="erase">Erase marks</option></select></label><label>Brush size <input id="trace-brush-size" type="range" min="2" max="100" value="20"><output id="trace-brush-size-value">20 px</output></label><button id="trace-edit-undo" disabled>Undo edit</button><button id="trace-edit-clear" disabled>Clear marks</button></div><small>Paint on either preview. Green includes missing parts; pink excludes shadows. Remove spot deletes a connected traced shape. Use a brush for shadows attached to the subject.</small></fieldset>
   <div class="trace-previews"><figure><figcaption>Visible image</figcaption><div class="trace-preview"><canvas id="trace-original" tabindex="0" aria-label="Original image preview"></canvas></div></figure><figure><figcaption>Vector paths</figcaption><div class="trace-preview" id="trace-result" tabindex="0" role="img" aria-label="Traced path preview"></div></figure></div>
   <p id="trace-status" role="status" aria-live="polite"></p><small id="trace-help">Simple uses our conservative limits of 1,000 nodes and 120 outlines. Closed paths include real holes, with no background rectangle or outline stroke. Use Simple for Tinkercad and cutting, and color for artwork.</small>
   <div class="trace-footer"><span>Replaces the image. Undo restores it.</span><button id="trace-cancel">Cancel</button><button id="trace-apply" class="primary" disabled>Convert to paths</button></div>`;
   document.body.append(dialog);
   const el=name=>dialog.querySelector(`#trace-${name}`),originalCanvas=el('original');
-  let session=null,result=null,worker=null,timer=null,revision=0,refinement=null,stroke=null,editHistory=[];
+  let session=null,result=null,worker=null,timer=null,revision=0,refinement=null,stroke=null,editHistory=[],presetChosen=false;
   function stop(){clearTimeout(timer);timer=null;worker?.terminate();worker=null;}
-  function settings(){return {mode:el('mode').value,preset:el('preset').value,colors:Number(el('colors').value),threshold:Number(el('threshold').value),noise:Number(el('noise').value),invert:el('invert').checked,ignoreWhite:el('white').checked,fillHoles:el('holes').checked,smoothing:Number(el('smoothing').value)};}
+  function settings(){return {mode:el('mode').value,preset:el('preset').value,colors:Number(el('colors').value),threshold:Number(el('threshold').value),noise:Number(el('noise').value),invert:el('invert').checked,ignoreWhite:el('white').checked,fillHoles:el('holes').checked,smoothing:Number(el('smoothing').value),backgroundTolerance:Number(el('background').value),outlineWidth:Number(el('outline').value),stackColors:el('stack').checked};}
   function controls(){
-    const color=el('mode').value==='color',preset=TRACE_PRESETS[el('preset').value];
-    for(const name of ['colors-control','white-control'])el(name).hidden=!color;
-    for(const name of ['threshold-control','invert-control','holes-control'])el(name).hidden=color;
+    const mode=el('mode').value,color=mode==='color',subject=mode==='silhouette'||mode==='outline',preset=TRACE_PRESETS[el('preset').value];
+    for(const name of ['colors-control','white-control','stack-control'])el(name).hidden=!color;
+    for(const name of ['threshold-control','invert-control'])el(name).hidden=mode!=='mono';el('holes-control').hidden=color;el('background-control').hidden=!subject;el('outline-control').hidden=mode!=='outline';el('background-value').textContent=el('background').value+'%';el('outline-value').textContent=el('outline').value+'%';
     el('threshold-value').textContent=Math.round(Number(el('threshold').value)/255*100)+'%';el('noise-value').textContent=el('noise').value;el('smoothing-value').textContent=el('smoothing').value+'%';
-    el('help').textContent=`${preset.label} uses our limits of ${preset.maxNodes.toLocaleString()} nodes and ${preset.maxContours} outlines. Closed paths include real holes, with no background rectangle or outline stroke. Use Simple for Tinkercad and cutting, and color for artwork.`;
+    el('help').textContent=`${preset.label} uses our limits of ${preset.maxNodes.toLocaleString()} nodes and ${preset.maxContours} outlines. Closed paths include real holes, with no background rectangle or outline stroke. ${color?'Stacked colors hide seams; turn stacking off for separate regions. Balanced or Detailed retains more small color details.':subject?'Transparent images use their visible shape. For opaque images, the background must be plain. Use Include/Exclude to correct the subject.':'Black and white selects dark pixels. Try Solid silhouette if a light-colored subject is incomplete.'}`;
   }
   function renderTrace(value){
     el('result').replaceChildren();
@@ -38,6 +40,8 @@ export function installImageTracing({getImage,apply,say}){
     const summary=`${value.nodes.toLocaleString()} nodes · ${value.contourCount.toLocaleString()} outlines · ${value.shapes.length} color${value.shapes.length===1?'':'s'}`;
     el('status').classList.toggle('trace-error',value.tooComplex);
     el('status').textContent=value.tooComplex?`${summary}. Too complex for this limit. Increase speck removal, use fewer colors, or choose a higher limit.`:!value.shapes.length?'Nothing to trace. Adjust the threshold, switch light/dark, or reduce speck removal.':`${summary}${value.removed?` · ${value.removed} small details removed`:''}${value.holesFilled?` · ${value.holesFilled} enclosed holes filled`:''}${value.correctedPixels?' · Manual corrections applied':''}${value.adjusted?' · Simplified further to fit the node limit':''}.`;
+    el('use-silhouette').hidden=!value.recommendSilhouette;
+    if(value.subjectMethod==='uncertain'&&['silhouette','outline'].includes(el('mode').value))el('status').textContent+=' No plain background found. Use Remove background first, or mark the subject with Include/Exclude.';
     el('apply').disabled=!!stroke||value.tooComplex||!value.shapes.length;
   }
   function renderMarks(){
@@ -88,7 +92,7 @@ export function installImageTracing({getImage,apply,say}){
   el('edit-undo').onclick=undoEdit;el('edit-clear').onclick=()=>{if(stroke)return;rememberEdit();refinement.mask.fill(0);renderMarks();schedule();};
   dialog.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&!e.shiftKey&&!e.target.matches('input,select')){e.preventDefault();undoEdit();}});
   function schedule(){
-    if(!session)return;stop();const current=++revision;result=null;controls();el('apply').disabled=true;el('result').replaceChildren();el('result').setAttribute('aria-busy','true');el('status').classList.remove('trace-error');el('status').textContent='Tracing image…';
+    if(!session)return;stop();const current=++revision;result=null;controls();el('use-silhouette').hidden=true;el('apply').disabled=true;el('result').replaceChildren();el('result').setAttribute('aria-busy','true');el('status').classList.remove('trace-error');el('status').textContent='Tracing image…';
     timer=setTimeout(()=>{
       if(!session||!dialog.open||current!==revision)return;
       try{
@@ -102,8 +106,11 @@ export function installImageTracing({getImage,apply,say}){
       }catch{el('result').setAttribute('aria-busy','false');el('status').classList.add('trace-error');el('status').textContent='Could not prepare the image for tracing. Try inserting a local image.';}
     },150);
   }
-  for(const name of ['mode','preset','colors','threshold','noise','invert','white','holes','smoothing'])el(name).addEventListener('input',schedule);
-  function defaults(){el('mode').value='mono';el('preset').value='simple';el('colors').value='4';el('threshold').value='128';el('noise').value='12';el('smoothing').value='70';el('invert').checked=false;el('white').checked=true;el('holes').checked=false;el('brush-mode').value='view';el('brush-size').value='20';if(refinement)refinement.mask.fill(0);editHistory=[];renderMarks();updateBrush();}
+  el('preset').addEventListener('input',()=>presetChosen=true);
+  el('mode').addEventListener('input',()=>{if(!presetChosen)el('preset').value=el('mode').value==='color'?'balanced':'simple';});
+  for(const name of ['mode','preset','colors','threshold','noise','invert','white','holes','smoothing','background','outline','stack'])el(name).addEventListener('input',schedule);
+  function defaults(){presetChosen=false;el('mode').value='mono';el('preset').value='simple';el('colors').value='4';el('threshold').value='128';el('noise').value='12';el('smoothing').value='70';el('invert').checked=false;el('white').checked=true;el('holes').checked=false;el('stack').checked=true;el('background').value='20';el('outline').value='1.5';el('use-silhouette').hidden=true;el('brush-mode').value='view';el('brush-size').value='20';if(refinement)refinement.mask.fill(0);editHistory=[];renderMarks();updateBrush();}
+  el('use-silhouette').onclick=()=>{el('mode').value='silhouette';schedule();};
   el('reset').onclick=()=>{if(stroke)return;defaults();schedule();};
   for(const name of ['close','cancel'])el(name).onclick=()=>dialog.close();
   dialog.addEventListener('close',()=>{++revision;stop();session=result=refinement=stroke=null;editHistory=[];originalCanvas.width=originalCanvas.height=1;el('result').replaceChildren();});

@@ -21,7 +21,7 @@ test('threshold and inversion trace dark or light areas without tracing transpar
 });
 test('color tracing produces limited independent colors and optional white background',()=>{
   const image=fixture(60,30);image.rect(3,3,20,20,[255,0,0,255]);image.rect(30,3,20,20,[0,0,255,255]);
-  const result=traceImage(image,{mode:'color',colors:2,noise:0});expect(result.shapes.map(s=>s.fill).sort()).toEqual(['#0000ff','#ff0000']);expect(result.nodes).toBe(8);
+  const result=traceImage(image,{mode:'color',colors:2,noise:0,stackColors:false});expect(result.shapes.map(s=>s.fill).sort()).toEqual(['#0000ff','#ff0000']);expect(result.nodes).toBe(8);
   const white=traceImage(image,{mode:'color',colors:4,ignoreWhite:false,noise:0});expect(white.shapes.some(s=>s.fill==='#ffffff')).toBe(true);
 });
 test('diagonal regions stay separate and curved outlines use fewer nodes than pixels',()=>{
@@ -72,7 +72,7 @@ test('smoothing fits accurate curves with fewer anchors while preserving sharp c
 });
 test('neighboring colors share identical curved edges at three-color junctions',()=>{
   const image=fixture(120,100);for(let y=10;y<90;y++)for(let x=10;x<110;x++)image.data.set(x<60+Math.sin((y-10)/80*Math.PI)*20?[255,0,0,255]:[0,0,255,255],(y*120+x)*4);
-  const result=traceImage(image,{mode:'color',colors:2,smoothing:70,noise:0});
+  const result=traceImage(image,{mode:'color',colors:2,smoothing:70,noise:0,stackColors:false});
   const edges=shape=>shape.segments.flatMap(loop=>loop.map(([p,,out],i)=>{const [q,into]=loop[(i+1)%loop.length];return [p,p.map((v,c)=>v+out[c]),q.map((v,c)=>v+into[c]),q];}));
   const a=edges(result.shapes[0]),b=edges(result.shapes[1]);const shared=a.filter(edge=>b.some(other=>JSON.stringify(edge)===JSON.stringify(other.slice().reverse())));
   expect(shared.length).toBeGreaterThan(2);expect(shared.some(([p,c])=>p.some((v,i)=>v!==c[i]))).toBe(true);
@@ -95,10 +95,10 @@ test('removing a small color fleck restores the surrounding region rather than p
 });
 
 test('small round traces keep smooth handles and long ellipses avoid radial lumps',()=>{
-  for(const [rx,ry] of [[4,4],[6,6],[10,10],[150,35]]){
+  for(const smoothing of [70,100])for(const [rx,ry] of [[4,4],[6,6],[10,10],[150,35]]){
     const width=rx*2+20,height=ry*2+20,cx=rx+10,cy=ry+10,image=fixture(width,height);
     for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(((x-cx)/rx)**2+((y-cy)/ry)**2<1)image.data.set([0,0,0,255],(y*width+x)*4);
-    const result=traceImage(image,{noise:0,smoothing:70}),loop=result.shapes[0].segments[0];
+    const result=traceImage(image,{noise:0,smoothing}),loop=result.shapes[0].segments[0];
     expect(loop.every(([,into,out])=>into.some(Boolean)&&out.some(Boolean))).toBe(true);
     const errors=curvePoints(loop).map(([x,y])=>Math.abs(Math.hypot((x-cx-.5)/rx,(y-cy-.5)/ry)-1)*Math.min(rx,ry));
     expect(Math.max(...errors)).toBeLessThan(1);
@@ -106,4 +106,53 @@ test('small round traces keep smooth handles and long ellipses avoid radial lump
     // Every join uses opposing, collinear handles despite unequal anchor spacing.
     for(const [,a,b] of loop){expect(Math.abs(a[0]*b[1]-a[1]*b[0])).toBeLessThan(1e-6);expect(a[0]*b[0]+a[1]*b[1]).toBeLessThan(0);}
   }
+});
+
+test('smoothing preserves long diagonal sail edges instead of bowing them',()=>{
+  const image=fixture(180,160),inside=(x,y,points)=>{let hit=false;for(let i=0,j=points.length-1;i<points.length;j=i++){const a=points[i],b=points[j];if((a[1]>y)!==(b[1]>y)&&x<(b[0]-a[0])*(y-a[1])/(b[1]-a[1])+a[0])hit=!hit;}return hit;};
+  const outer=[[90,10],[20,140],[160,130]],hole=[[90,35],[40,127],[142,120]];
+  for(let y=0;y<160;y++)for(let x=0;x<180;x++)if(inside(x+.5,y+.5,outer)&&!inside(x+.5,y+.5,hole))image.data.set([0,0,0,255],(y*180+x)*4);
+  for(const smoothing of [70,100]){
+    const result=traceImage(image,{noise:0,smoothing});let long=0;
+    for(const loop of result.shapes[0].segments)for(let i=0;i<loop.length;i++){const [p,,out]=loop[i],[q,into]=loop[(i+1)%loop.length];if(Math.hypot(q[0]-p[0],q[1]-p[1])>50){long++;expect(out).toEqual([0,0]);expect(into).toEqual([0,0]);}}
+    expect(long).toBeGreaterThanOrEqual(6);
+  }
+});
+
+test('rounded-end thin strokes keep straight sides without a swollen middle',()=>{
+  const image=fixture(180,80),a=[20,40],b=[150,32],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy),radius=4;
+  for(let y=0;y<80;y++)for(let x=0;x<180;x++){const t=Math.max(0,Math.min(1,((x+.5-a[0])*dx+(y+.5-a[1])*dy)/(length*length)));if(Math.hypot(x+.5-a[0]-t*dx,y+.5-a[1]-t*dy)<=radius)image.data.set([0,0,0,255],(y*180+x)*4);}
+  for(const smoothing of [70,100]){
+    const result=traceImage(image,{noise:0,smoothing}),samples=curvePoints(result.shapes[0].segments[0]);
+    const middle=samples.filter(([x,y])=>{const t=((x-a[0])*dx+(y-a[1])*dy)/(length*length);return t>.15&&t<.85;});
+    for(const [x,y] of middle)expect(Math.abs(Math.abs(dx*(y-a[1])-dy*(x-a[0]))/length-radius)).toBeLessThan(.8);
+  }
+});
+
+test('solid silhouette includes light artwork and white eyes using transparency',()=>{
+  const image=fixture(80,70,[0,0,0,0]);image.rect(15,10,50,50,[255,150,200,255]);image.rect(25,25,12,12,[255,255,255,255]);image.rect(29,29,3,3,[0,0,0,255]);image.rect(50,45,5,5,[0,0,0,0]);
+  const mono=traceImage(image,{noise:0}),solid=traceImage(image,{mode:'silhouette',noise:0});expect(mono.recommendSilhouette).toBe(true);expect(solid.subjectMethod).toBe('transparency');expect(containsTrace(solid,20,20)).toBe(true);expect(containsTrace(solid,26,26)).toBe(true);expect(containsTrace(solid,52,47)).toBe(false);expect(containsTrace(solid,5,5)).toBe(false);
+});
+test('silhouette removes only contiguous plain background and outline is a filled vector border',()=>{
+  const image=fixture(100,80);image.rect(20,10,60,60,[245,100,170,255]);image.rect(40,30,20,20,[255,255,255,255]);
+  const solid=traceImage(image,{mode:'silhouette',noise:0});expect(solid.subjectMethod).toBe('plain background');expect(containsTrace(solid,45,35)).toBe(true);expect(containsTrace(solid,10,10)).toBe(false);
+  const outline=traceImage(image,{mode:'outline',outlineWidth:4,noise:0});expect(outline.contourCount).toBe(2);expect(containsTrace(outline,21,30)).toBe(true);expect(containsTrace(outline,50,40)).toBe(false);expect(outline.selection[40*100+50]).toBe(1);
+  const overrides=new Uint8Array(100*80);overrides[5*100+5]=1;const corrected=traceImage({...image,overrides},{mode:'silhouette',noise:100});expect(corrected.selection[5*100+5]).toBe(1);
+});
+test('uncertain backgrounds are identified instead of claiming an extracted subject',()=>{
+  const image=fixture(30,30);for(let y=0;y<30;y++)for(let x=0;x<30;x++)image.data.set([x*8,y*8,(x+y)*4,255],(y*30+x)*4);
+  expect(traceImage(image,{mode:'silhouette'}).subjectMethod).toBe('uncertain');
+});
+test('stacked color paths overlap underneath later colors and separate regions remain optional',()=>{
+  const image=fixture(60,40,[0,0,0,0]);image.rect(5,5,25,30,[255,0,0,255]);image.rect(30,5,25,30,[0,0,255,255]);
+  const stacked=traceImage(image,{mode:'color',colors:2,noise:0}),separate=traceImage(image,{mode:'color',colors:2,noise:0,stackColors:false});expect(stacked.stackColors).toBe(true);expect(containsTrace({...stacked,shapes:[stacked.shapes[0]]},45,20)).toBe(true);expect(containsTrace({...stacked,shapes:[stacked.shapes[0]]},15,20)).toBe(true);expect(separate.stackColors).toBe(false);expect(separate.nodes).toBe(8);expect(stacked.tooComplex).toBe(false);
+});
+
+test('high edge smoothing removes multi-pixel bumps while preserving the underlying broad curve',()=>{
+  const image=fixture(240,180),ideal=x=>70+18*Math.sin(x/65);
+  for(let y=0;y<180;y++)for(let x=15;x<225;x++)if(y>ideal(x)+(Math.floor(x/3)%2?2:-2)&&y<150)image.data.set([0,0,0,255],(y*240+x)*4);
+  const normal=traceImage(image,{noise:0,preset:'detailed',smoothing:70}),strong=traceImage(image,{noise:0,preset:'detailed',smoothing:100});
+  const error=result=>{const points=curvePoints(result.shapes[0].segments[0]).filter(([x,y])=>x>35&&x<205&&y<105);return Math.sqrt(points.reduce((sum,[x,y])=>sum+(y-ideal(x))**2,0)/points.length);};
+  expect(strong.nodes).toBeLessThan(normal.nodes/2);expect(error(strong)).toBeLessThan(error(normal)*.65);expect(error(strong)).toBeLessThan(1);
+  const thin=fixture(160,60);thin.rect(10,25,140,2,[0,0,0,255]);const narrow=traceImage(thin,{noise:0,smoothing:100});expect(containsTrace(narrow,80,26)).toBe(true);expect(containsTrace(narrow,80,24)).toBe(false);expect(narrow.contourCount).toBe(1);
 });

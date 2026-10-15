@@ -78,7 +78,7 @@ Text fields keep their usual select/copy/paste behavior. Pasted artwork is offse
 
 Press **-** to zoom out and **=** (or **+**) to zoom in while working on the canvas. Zoom stays anchored under the cursor while it is over the canvas, and uses the center when no cursor is over the canvas. These keys keep their normal behavior in text and dimension fields.
 
-The top toolbar stays one fixed-height row. Selection, node, text, and image controls extend it horizontally; scroll the toolbar to reach additional controls without moving the canvas.
+X/Y/W/H fields display up to three decimal places; artwork keeps its full precision until a value is edited. The top toolbar stays one fixed-height row. Selection, node, text, and image controls extend it horizontally; scroll the toolbar to reach additional controls without moving the canvas.
 
 ## Precise positioning
 
@@ -131,7 +131,7 @@ Double-click/double-tap cycles through these corner stages and back to round. No
 
 Use **Insert image** for PNG, JPEG, WebP, or GIF files, or paste an image from the clipboard while the canvas has focus. Images are embedded in saved SVGs; no upload or external image URL is required. Animated images use a still frame.
 
-Select one image and choose **Crop** (left toolbar or Dimensions). Drag a rectangle over the image to keep that area; release to apply. Dragging works in either direction and follows rotated images. **Reset crop** restores the complete image. Exact edge percentages remain available under **Exact crop percentages**. Cropping is nondestructive: original pixels remain embedded, including cropped areas. Cropping, image placement, copying, and sizing support undo and browser recovery. Files are limited to 15 MB each; SVG imports to 30 MB. Large images can exceed browser-local recovery storage, so keep SVG copies.
+Select one image and choose **Crop** (left toolbar or Dimensions). Drag a rectangle over the image to keep that area; release to apply. Dragging works in either direction and follows rotated images. **Reset crop** restores the complete image. Exact edge percentages remain available under **Crop menu**. Cropping is nondestructive: original pixels remain embedded, including cropped areas. Cropping, image placement, copying, and sizing support undo and browser recovery. Files are limited to 15 MB each; SVG imports to 30 MB. Large images can exceed browser-local recovery storage, so keep SVG copies.
 
 Click empty artboard or background space to clear the selection, including with multiple selection enabled. Dragging empty space still box-selects objects or nodes.
 
@@ -158,6 +158,10 @@ Sampling combines visible images and vector artwork against the white artboard, 
 ### Trace an image to editable paths
 
 Select one image, then choose **Trace image** beside the crop and background removal controls. The modal compares the visible image with its vector preview. **Convert to paths** replaces the image in place; Undo restores it. Tracing runs locally in a browser worker, so adjusting settings or canceling does not upload the image or change the artwork.
+
+**Solid silhouette** captures the whole visible subject, including light colors and white eyes. Transparent images use their alpha shape; opaque images use the dominant plain background connected to the image border. **Background tolerance** adjusts that removal. Busy photo backgrounds need **Remove background** or Include/Exclude corrections first; the dialog warns when no reliable plain background exists. **Cutout outline** makes a hollow, filled vector band around the subject; **Outline width** is a percentage of the image's shorter side, independent of preview resolution. Both modes preserve real transparent cutouts and support touch-up brushes.
+
+Color traces start with Balanced detail unless you have explicitly chosen another complexity setting, and default to **Stack colors to hide seams**. Filled layers overlap beneath later colors, preventing anti-aliased transparent hairlines between neighboring regions. No SVG outline strokes are added. Turn stacking off when you need separate, non-overlapping color regions. The existing **Edge smoothing** control keeps detail at lower values; above 70%, it increasingly removes small pixel bumps and fits broader curves. Corners, narrow features, and shared color boundaries are protected. Curves are checked against the cleaned boundary and refined when they stray too far. Use Balanced or Detailed for small color features that Simple's manufacturing node budget must simplify.
 
 The default **Black and white / Simple** trace creates black filled shapes with the white background left empty. Inner openings become actual holes in the compound path. Threshold controls which tones count as dark; **Trace light areas instead** reverses this choice. **Remove small specks** removes tiny islands and holes, with the number removed shown below the preview.
 

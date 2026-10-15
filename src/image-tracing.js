@@ -1,3 +1,4 @@
+import {subjectSelection,outlineSelection} from './trace-subject.js';
 import {prepareContour,fitContour} from './trace-curves.js';
 // Browser-independent tracing: color reduction, four-connected contour following,
 // shared-boundary simplification and curve fitting. Output is filled, closed paths.
@@ -159,12 +160,14 @@ function contoursForColor(labels,width,height,color,minArea){
 
 export function traceImage({data,width,height,overrides},settings={}){
   if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>768||height>768||data.length!==width*height*4)throw Error('The trace preview is too large or invalid.');
-  const preset=TRACE_PRESETS[settings.preset]||TRACE_PRESETS.simple,mode=settings.mode==='color'?'color':'mono';
+  const preset=TRACE_PRESETS[settings.preset]||TRACE_PRESETS.simple,mode=['color','silhouette','outline'].includes(settings.mode)?settings.mode:'mono';
   const threshold=Math.max(0,Math.min(255,Number(settings.threshold??128))),invert=!!settings.invert,ignoreWhite=settings.ignoreWhite!==false;
   const colorCount=[2,4,8,12,16].includes(Number(settings.colors))?Number(settings.colors):4;
   const smoothing=Math.max(0,Math.min(100,Number(settings.smoothing??70)));
-  const palette=mode==='mono'?[[0,0,0]]:colorPalette(data,width,height,colorCount,ignoreWhite),labels=new Int8Array(width*height);labels.fill(-1);
+  const palette=mode!=='color'?[[0,0,0]]:colorPalette(data,width,height,colorCount,ignoreWhite),labels=new Int8Array(width*height);labels.fill(-1);
+  const subject=mode==='silhouette'||mode==='outline'||mode==='mono'?subjectSelection(data,width,height,Number(settings.backgroundTolerance??20)):null;
   for(let i=0;i<labels.length;i++){
+    if(mode==='silhouette'||mode==='outline'){if(subject.mask[i])labels[i]=0;continue;}
     const p=i*4,alpha=data[p+3]/255;if(alpha<.5)continue;
     const rgb=[0,1,2].map(c=>data[p+c]*alpha+255*(1-alpha));
     if(mode==='mono'){const light=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;if(invert?light>=threshold:light<=threshold)labels[i]=0;}
@@ -183,18 +186,22 @@ export function traceImage({data,width,height,overrides},settings={}){
     for(let i=0;i<labels.length;i++){
       if(overrides[i]===2)labels[i]=-1;
       else if(overrides[i]===1){
-        if(mode==='mono')labels[i]=0;
+        if(mode!=='color')labels[i]=0;
         else{let best=Infinity;palette.forEach((color,index)=>{const d=color.reduce((sum,v,c)=>sum+(v-data[i*4+c])**2,0);if(d<best){best=d;labels[i]=index;}});}
       }
     }
   }
   applyCorrections();
-  const holesFilled=mode==='mono'&&settings.fillHoles?fillInteriorHoles(labels,data,width,height):0;
+  const holesFilled=mode!=='color'&&settings.fillHoles?fillInteriorHoles(labels,data,width,height):0;
   // Explicit exclusions stay empty even when automatic hole filling is enabled.
   applyCorrections();
   if(overrides)for(const value of overrides)if(value===1||value===2)correctedPixels++;
-  const selection=Uint8Array.from(labels,value=>Number(value>=0));
-  const raw=palette.map((rgb,index)=>{const result=contoursForColor(labels,width,height,index,correctedPixels?0:minArea);removed+=result.removed;contourCount+=result.contours.length;return {fill:'#'+rgb.map(v=>v.toString(16).padStart(2,'0')).join(''),contours:result.contours.map(points=>prepareContour(points,labels,width,height,smoothing))};}).filter(shape=>shape.contours.length);
+  const subjectArea=Uint8Array.from(labels,v=>Number(v>=0));
+  if(mode==='outline'){const border=outlineSelection(Uint8Array.from(labels,v=>Number(v>=0)),width,height,Number(settings.outlineWidth??1.5));for(let i=0;i<labels.length;i++)labels[i]=border[i]?0:-1;}
+  const selection=mode==='outline'?subjectArea:Uint8Array.from(labels,value=>Number(value>=0));
+  const stackColors=mode==='color'&&settings.stackColors!==false;
+  const counts=palette.map((_,i)=>labels.reduce((sum,v)=>sum+Number(v===i),0)),order=palette.map((_,i)=>i).filter(i=>counts[i]>0).sort((a,b)=>counts[b]-counts[a]),rank=new Map(order.map((color,i)=>[color,i]));
+  const raw=(stackColors?order:palette.map((_,i)=>i)).map((index,layer)=>{const rgb=palette[index],layerLabels=stackColors?Int8Array.from(labels,v=>v>=0&&rank.get(v)>=layer?0:-1):labels;const result=contoursForColor(layerLabels,width,height,stackColors?0:index,correctedPixels?0:minArea);removed+=result.removed;contourCount+=result.contours.length;return {fill:'#'+rgb.map(v=>v.toString(16).padStart(2,'0')).join(''),contours:result.contours.map(points=>prepareContour(points,labels,width,height,smoothing))};}).filter(shape=>shape.contours.length);
   let shapes=[],nodes=0,tolerance=preset.tolerance,adjusted=false;
   for(let attempt=0;attempt<7;attempt++){
     shapes=raw.map(shape=>{const fitted=shape.contours.map(contour=>fitContour(contour,Math.max(tolerance,smoothing/100*.9),smoothing,simplifyClosed,simplifyChain));return {fill:shape.fill,contours:fitted.map(c=>c.points),segments:fitted.map(c=>c.segments)};});
@@ -202,7 +209,8 @@ export function traceImage({data,width,height,overrides},settings={}){
     if(nodes<=preset.maxNodes)break;tolerance*=1.5;adjusted=true;
   }
   const tooComplex=nodes>preset.maxNodes||contourCount>preset.maxContours;
-  return {width,height,shapes,nodes,contourCount,removed,holesFilled,correctedPixels,selection,adjusted,tooComplex,maxNodes:preset.maxNodes,maxContours:preset.maxContours};
+  const foreground=subject?.mask.reduce((sum,v)=>sum+v,0)||0,selectedPixels=selection.reduce((sum,v)=>sum+v,0);
+  return {width,height,shapes,nodes,contourCount,removed,holesFilled,correctedPixels,selection,adjusted,tooComplex,stackColors,subjectMethod:subject?.method,recommendSilhouette:mode==='mono'&&subject?.method!=='uncertain'&&foreground>selectedPixels*1.8&&foreground>width*height*.01,maxNodes:preset.maxNodes,maxContours:preset.maxContours};
 }
 
 export function tracePathData(contours,segments){
