@@ -755,3 +755,50 @@ test('deleting all nodes of a compound subpath keeps other contours and supports
   expect(await savedNodeCount(page)).toBe(4);expect(await savedObjects(page)).toHaveLength(1);expect((await svg(page)).text).toContain('fill="#ff0000"');
   await page.locator('#undo').click();expect(await savedNodeCount(page)).toBe(8);await page.keyboard.press('Control+a');await page.keyboard.press('Delete');expect((await savedObjects(page))||[]).toHaveLength(0);
 });
+
+test('moved overlapping compound path keeps its own nodes selectable ahead of covering paths',async({page})=>{
+  await page.goto('/');await loadDrawing(page,'<svg xmlns="http://www.w3.org/2000/svg"><path fill="#ed7915" d="M300 300h200v200h-200z M360 360v40h40v-40z"/><path fill="#ffd600" d="M250 250h300v200h-300z"/></svg>');
+  await page.locator('#snap-button').click();await page.locator('#snapping').uncheck();await page.locator('#snap-button').click();
+  let p=await projectPoint(page,420,480);await page.mouse.click(p.x,p.y);await page.locator('[data-tool=nodes]').click();
+  p=await projectPoint(page,300,300);await page.mouse.click(p.x,p.y);await expect(page.locator('#node-count')).toHaveText('1 node selected');
+  await page.locator('[data-tool=select]').click();await moveProject(page,[420,480],[450,500]);await page.mouse.up();
+  await page.locator('[data-tool=nodes]').click();const anchor=await firstNodeWorld(page);expect(anchor.x).toBeCloseTo(330,2);expect(anchor.y).toBeCloseTo(320,2);
+  // Clicking the moved orange outline beneath the yellow fill must keep orange selected.
+  p=await projectPoint(page,330,400);await page.mouse.click(p.x,p.y);
+  // Recover even if the covering yellow path has already become selected.
+  p=await projectPoint(page,550,250);await page.mouse.click(p.x,p.y);
+  p=await projectPoint(page,330,400);await page.mouse.click(p.x,p.y);
+  p=await projectPoint(page,anchor.x,anchor.y);await page.mouse.click(p.x,p.y);await expect(page.locator('#node-count')).toHaveText('1 node selected');
+  await page.keyboard.press('ArrowRight');const after=await firstNodeWorld(page);expect(after.x).toBeCloseTo(anchor.x+12,2);expect(after.y).toBeCloseTo(anchor.y,2);
+  expect(await savedAnchor(page,1)).toEqual([250,250]);
+});
+
+test('moved color trace stays node-editable where another traced color overlaps it',async({page})=>{
+  await page.goto('/');await traceFixture(page,'colors');await page.locator('#trace-image').click();await traceReady(page);await page.locator('#trace-mode').selectOption('color');await traceReady(page);await page.locator('#trace-apply').click();
+  await page.locator('#snap-button').click();await page.locator('#snapping').uncheck();await page.locator('#snap-button').click();
+  const before=await firstNodeWorld(page);let p=await projectPoint(page,488,408);await page.mouse.click(p.x,p.y);await moveProject(page,[488,408],[548,408]);await page.mouse.up();
+  const anchor=await firstNodeWorld(page);expect(anchor.x).toBeCloseTo(before.x+60,2);
+  await page.locator('[data-tool=nodes]').click();p=await projectPoint(page,578,408);await page.mouse.click(p.x,p.y);p=await projectPoint(page,anchor.x,anchor.y);await page.mouse.click(p.x,p.y);await expect(page.locator('#node-count')).toHaveText('1 node selected');
+  await page.keyboard.press('ArrowRight');expect((await firstNodeWorld(page)).x).toBeCloseTo(anchor.x+12,2);
+});
+
+for(const [operation,edit] of [['subtract','delete'],['subtract','drag'],['subtract','round'],['subtract','nudge'],['unite','nudge'],['intersect','nudge']])test(`${operation} outline supports direct node ${edit} with reversible Undo and SVG reopening`,async({page})=>{
+  await combineDrawing(page,operation);await page.locator('#snap-button').click();await page.locator('#snapping').uncheck();await page.locator('#snap-button').click();
+  const original=await page.evaluate(()=>localStorage.getItem('vector-lab')),count=await savedNodeCount(page),anchor=await firstNodeWorld(page);
+  await page.locator('[data-tool=nodes]').click();const p=await projectPoint(page,anchor.x,anchor.y);await page.mouse.click(p.x,p.y);await expect(page.locator('#node-count')).toHaveText('1 node selected');await expect(page.locator('#break-apart')).toBeEnabled();
+  if(edit==='delete')await page.keyboard.press('Delete');
+  else if(edit==='drag'){await moveProject(page,[anchor.x,anchor.y],[anchor.x+10,anchor.y+5]);await page.mouse.up();}
+  else if(edit==='round')await page.locator('#node-round').click();
+  else await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#break-apart')).toBeDisabled();expect(await savedObjects(page)).toHaveLength(1);expect(await savedNodeCount(page)).toBe(count-(edit==='delete'?1:0));
+  if(edit==='drag'||edit==='nudge')expect((await firstNodeWorld(page)).x).toBeCloseTo(anchor.x+(edit==='drag'?10:1),3);
+  const edited=await page.evaluate(()=>localStorage.getItem('vector-lab'));await page.locator('#undo').click();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(original);await page.keyboard.press('Control+a');await expect(page.locator('#break-apart')).toBeEnabled();
+  await page.locator('#redo').click();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(edited);
+  const output=(await svg(page)).text;expect(output).not.toContain('vector-lab-shape-building');await loadDrawing(page,output);await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await expect(page.locator('#node-count')).toHaveText(`${count-(edit==='delete'?1:0)} nodes selected`);
+});
+
+test('cancelling a combined-node touch drag preserves Break Apart',async({page})=>{
+  await combineDrawing(page,'subtract');const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));await page.locator('[data-tool=nodes]').click();const anchor=await firstNodeWorld(page),p=await projectPoint(page,anchor.x,anchor.y);
+  const canvas=page.locator('#canvas');await canvas.dispatchEvent('pointerdown',{pointerId:1,pointerType:'touch',clientX:p.x,clientY:p.y,bubbles:true});await canvas.dispatchEvent('pointermove',{pointerId:1,pointerType:'touch',clientX:p.x+15,clientY:p.y+10,bubbles:true});await canvas.dispatchEvent('pointercancel',{pointerId:1,pointerType:'touch',clientX:p.x+15,clientY:p.y+10,bubbles:true});
+  await expect(page.locator('#break-apart')).toBeEnabled();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);expect(await firstNodeWorld(page)).toEqual(anchor);
+});
