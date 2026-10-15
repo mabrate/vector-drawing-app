@@ -82,3 +82,17 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 .context{gap:8px}.context #selection-dimensions label{gap:3px;font-size:11px}.context #selection-dimensions input{width:60px;padding:5px 4px;font-size:12px;font-variant-numeric:tabular-nums}.context .object-actions{gap:2px;padding-left:6px}.context .stack-controls{gap:2px}.context .stack-controls button{width:30px;padding:4px}.context #unit-button{min-width:48px;padding:5px 6px}.context #snap-button{padding:6px 8px}.context #panel-nodes label{gap:3px}.context #panel-nodes .node-actions{gap:3px}.context .node-actions button{width:34px;padding:5px}.context .node-actions svg{display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round}.context #remove-background,.context #trace-image{padding:5px 8px}.context #image-crop summary{white-space:nowrap;cursor:pointer;font-size:12px}
 @media(pointer:coarse){.context #selection-dimensions input{width:66px;font-size:16px}}
 @media(min-width:1000px){.trace-controls{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}}
+#dimension-labels .dimension-label{position:absolute;z-index:3;display:flex;align-items:center;gap:4px;min-height:32px;padding:3px 6px;border:1px solid #267d81;border-radius:6px;background:white;color:#203c43;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#dimension-labels input{width:62px;min-width:0;padding:3px 0;border:0;background:transparent;color:inherit;font:inherit;text-align:center;outline:none}
+#dimension-labels .dimension-label:focus-within{outline:2px solid #267d81;background:#fff0ba}
+#dimension-labels input.pending{border:0;box-shadow:none;background:transparent}
+#dimension-labels .cancel-dimension{position:static;display:none;min-height:24px;padding:0 3px;margin:0;border:0;background:transparent;font-size:16px}
+#dimension-labels .dimension-label:focus-within .cancel-dimension{display:block}
+@media(pointer:coarse){#dimension-labels input{font-size:16px}}
+#dimensions-tool,#dimension-controls{display:flex;align-items:center;gap:6px;flex:0 0 auto;flex-wrap:nowrap}
+#dimensions-toggle{display:flex;align-items:center;justify-content:center;width:34px;min-height:34px;padding:5px;margin:0}
+#dimensions-tool svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round}
+#dimension-controls label{display:flex;align-items:center;gap:3px;font-size:11px}
+#dimension-controls input{width:60px;min-width:0;padding:5px 4px;border:1px solid #ccd8d5;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums}
+#dimension-controls #apply-position{display:flex;align-items:center;justify-content:center;min-width:34px;min-height:34px;padding:5px;margin:0;order:1}
+@media(pointer:coarse){#dimension-controls input{width:66px;font-size:16px}}
