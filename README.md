@@ -90,7 +90,7 @@ Select artwork and use **X / Y → Apply position** to place the selection's geo
 
 On an iPad, drag two fingers across the canvas to pan; spread/pinch to zoom around your fingers. Adding the second finger cancels any unfinished shape move, resize, rotation, node edit, or new pen point from that gesture. Lift both fingers before drawing again.
 
-On a trackpad, scroll with two fingers to pan horizontally or vertically over the canvas. Trackpad pinch zooms around the pointer when the browser reports it as a Ctrl+wheel gesture. Navigation does not change artwork or create undo steps. Undo and Redo preserve the current zoom and pan. After manual zooming or panning, toolbar and viewport resizes keep the view center and scale; use Fit or Return to page to reframe.
+On a trackpad, scroll with two fingers to pan horizontally or vertically over the canvas. Hold Shift while scrolling to pan horizontally. Click and hold the middle mouse button (scroll wheel), then drag to pan from any tool. Trackpad pinch zooms around the pointer when the browser reports it as a Ctrl+wheel gesture. Navigation does not change artwork or create undo steps. Undo and Redo preserve the current zoom and pan. After manual zooming or panning, toolbar and viewport resizes keep the view center and scale; use Fit or Return to page to reframe.
 
 ## Top toolbar and style controls
 
@@ -234,3 +234,11 @@ In **Nodes**, double-click an outline (double-tap on touch) to insert an anchor 
 Select two open-path endpoints with **Multiple**, then choose **Join endpoints**. Endpoints from separate paths are connected by a straight segment; coincident endpoints merge into one anchor. The result retains curve geometry and uses the first endpoint’s path style. Selecting both ends of one path closes it. **Close path** connects the ends of each selected open path with at least three nodes.
 
 **Simplify…** overlays a pink preview and shows the before/after node count. Adjust tolerance in document pixels, then **Apply** or **Cancel**. Higher tolerance permits more shape changes; small details and holes should be checked before applying. Repair and simplification support Undo and editable SVG saving. Editing a combined outline clears its Break Apart history; Undo restores it.
+
+## Everyday color palette
+
+Fill and Stroke include **No fill / No stroke**, shown with a red slash on the color button. These remove paint rather than making it transparent, retaining the current color for later use. Choose a preset to restore an opaque color. The palette includes neutrals, common bright colors, greens and blues, browns, cream, and several skin tones; each swatch has a color name. Custom hex, HSL, and transparency controls remain available. New drawings start with blue fill and charcoal outlines.
+
+## Stroke endcaps and line patterns
+
+In **Fill and Outline**, choose **Flat**, **Round**, or **Square** endcaps, and **Solid**, **Dashed**, or **Dotted** lines. Endcaps affect open line ends and individual dashes. Dotted lines use round caps automatically. Preset dash and dot spacing follows stroke width; imported custom SVG dash patterns are preserved. These styles apply to selected artwork or the next shape, support Undo, and survive SVG saving/reopening.
