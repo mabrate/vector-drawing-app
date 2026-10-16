@@ -226,3 +226,11 @@ With touch or Pencil, rotation starts in 15° steps. Drag farther away from the 
 The X, Y, W, and H fields accept arithmetic, including the size inputs beside selected artwork and in the Page menu. For example, enter `105.765 + 0.25`, `200 * 1.5`, or `(100 + 25) / 2`, then press Enter or use the field's usual apply behavior. Results use the current page units and replace the expression with the calculated value. Matching labels such as `x = 105.765 + 0.25` are also accepted.
 
 Supported operators are `+`, `-`, `*`, `/`, and parentheses; pasted `−`, `×`, and `÷` also work. Invalid expressions, division by zero, and invalid sizes leave the artwork unchanged. On touch devices these fields use the full keyboard so operators can be entered.
+
+## Repairing and simplifying paths
+
+In **Nodes**, double-click an outline (double-tap on touch) to insert an anchor without changing its curve. Double-clicking an existing anchor still toggles its corner/smooth behavior.
+
+Select two open-path endpoints with **Multiple**, then choose **Join endpoints**. Endpoints from separate paths are connected by a straight segment; coincident endpoints merge into one anchor. The result retains curve geometry and uses the first endpoint’s path style. Selecting both ends of one path closes it. **Close path** connects the ends of each selected open path with at least three nodes.
+
+**Simplify…** overlays a pink preview and shows the before/after node count. Adjust tolerance in document pixels, then **Apply** or **Cancel**. Higher tolerance permits more shape changes; small details and holes should be checked before applying. Repair and simplification support Undo and editable SVG saving. Editing a combined outline clears its Break Apart history; Undo restores it.

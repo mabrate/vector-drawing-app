@@ -152,3 +152,8 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 #rotation-readout{position:absolute;z-index:9;pointer-events:none;max-width:calc(100% - 8px);padding:8px 10px;border:1px solid #b5c5bf;border-radius:8px;background:#fffffff5;color:#203c43;box-shadow:0 3px 12px #192f3526;font-size:13px;font-variant-numeric:tabular-nums}
 #rotation-readout strong{display:block;font-weight:600}#rotation-readout small{display:block;margin-top:3px;color:#617973;font-size:11px}
 @media(any-pointer:coarse){#dimension-controls input,#dimension-labels input,#handle-size input,#page-settings input{font-size:16px;min-height:44px}}
+#simplify-dialog{position:fixed;top:auto;bottom:12px;max-width:min(420px,calc(100vw - 24px));margin:0 auto;padding:18px;border:1px solid #267d81;border-radius:12px}
+#simplify-dialog::backdrop{background:transparent}
+#simplify-dialog input{width:100%}
+#simplify-count{display:block;margin:12px 0;font-variant-numeric:tabular-nums}
+#panel-nodes>button:not([hidden]){white-space:nowrap;min-height:44px}
