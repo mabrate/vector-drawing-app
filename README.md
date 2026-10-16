@@ -206,3 +206,23 @@ Lower smoothing to retain tiny angular details; **0%** keeps straight-line traci
 Select two or more objects and click the **Group** icon in the top selection toolbar, or press **Ctrl+G** / **Cmd+G**. Groups move, resize, rotate, and duplicate as one object while preserving their members' geometry, colors, and stacking order. Groups can contain shapes, text, images, or other groups.
 
 Select a group and click **Ungroup**, or press **Ctrl+Shift+G** / **Cmd+Shift+G**, to release one level of members in place. Ungroup nested groups again to reach their individual objects. Ungroup before editing individual path nodes. Image crop masks and reversible shape operations stay intact. Both actions support editor Undo, browser recovery, SVG save/open, and copying. Shortcuts are ignored while typing or while a dialog is open.
+
+### iPad toolbar and sharing
+
+On portrait tablets, **Properties** opens a drawer over the canvas instead of permanently taking up drawing space. Landscape keeps the sidebar visible. Touch controls have larger tap targets, related actions have subtle dividers, and arrow buttons at the toolbar edges reveal additional controls when the row overflows. The arrows disappear at the ends. Swipe the toolbar or tap an arrow; scrolling the controls does not move the artwork. Long-press an icon or menu control to see its explanation, including its keyboard shortcut when one exists.
+
+**Save SVG** opens a filename field and the prepared SVG actions. On browsers that support sharing SVG files, **Share SVG…** opens the native share sheet, where the iPad can offer AirDrop, Save to Files, and other destinations. The app cannot select a destination or recipient automatically. Sharing uses the same self-contained SVG as **Download SVG**, including embedded images and reversible shape metadata when applicable. Canceling the share sheet keeps the prepared file and drawing available.
+
+Native sharing requires a secure context, normally HTTPS (for example, GitHub Pages). A plain HTTP classroom-LAN address may not support it. When SVG sharing is unavailable or fails, use **Download SVG**, then share the downloaded file from Files. The filename is remembered locally and updated when opening an SVG. Actual native share destinations depend on the device and its settings; verify AirDrop and Save to Files on a classroom iPad.
+
+### Rotation snapping
+
+Drag the round rotation handle to rotate a selection around its center. Mouse rotation stays smooth; hold **Ctrl** for 15° steps, including while a drag is already in progress. Releasing Ctrl returns to smooth rotation.
+
+With touch or Pencil, rotation starts in 15° steps. Drag farther away from the shape to switch to 1° precision, or move closer to return to 15° steps. The floating readout shows the current angle and mode. These are increments relative to the start of the current drag. Canceling the touch gesture restores the original artwork, and completed rotations support Undo and SVG reopening.
+
+### Arithmetic in dimension fields
+
+The X, Y, W, and H fields accept arithmetic, including the size inputs beside selected artwork and in the Page menu. For example, enter `105.765 + 0.25`, `200 * 1.5`, or `(100 + 25) / 2`, then press Enter or use the field's usual apply behavior. Results use the current page units and replace the expression with the calculated value. Matching labels such as `x = 105.765 + 0.25` are also accepted.
+
+Supported operators are `+`, `-`, `*`, `/`, and parentheses; pasted `−`, `×`, and `÷` also work. Invalid expressions, division by zero, and invalid sizes leave the artwork unchanged. On touch devices these fields use the full keyboard so operators can be entered.
