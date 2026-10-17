@@ -1,0 +1,23 @@
+import {test,expect} from '@playwright/test';
+test.use({launchOptions:{executablePath:'/usr/bin/google-chrome'}});
+test('flip selection around shared center and restore with undo and redo',async({page})=>{
+  await page.goto('/');
+  await expect(page.locator('#flip-horizontal')).toBeDisabled();
+  await expect(page.locator('#flip-vertical')).toBeDisabled();
+  page.once('dialog',d=>d.accept());
+  await page.locator('#file').setInputFiles({name:'flip.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M100 100L200 100L100 200z"/><path d="M400 300L500 300L400 400z"/></svg>')});
+  await expect(page.locator('#status')).toContainText('SVG opened');
+  await page.keyboard.press('Control+a');
+  const points=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children.map(i=>i[1].segments.map(s=>Array.isArray(s[0])?s[0]:s)));
+  const original=await points();
+  await page.getByRole('button',{name:'Flip horizontal',exact:true}).click();
+  const horizontal=await points();
+  for(let i=0;i<2;i++)for(let j=0;j<3;j++)expect(horizontal[i][j]).toEqual([600-original[i][j][0],original[i][j][1]]);
+  await page.getByRole('button',{name:'Flip vertical',exact:true}).click();
+  const both=await points();
+  for(let i=0;i<2;i++)for(let j=0;j<3;j++)expect(both[i][j]).toEqual([horizontal[i][j][0],500-horizontal[i][j][1]]);
+  await page.locator('#canvas-undo').click();expect(await points()).toEqual(horizontal);
+  await page.locator('#canvas-undo').click();expect(await points()).toEqual(original);
+  await page.locator('#canvas-redo').click();expect(await points()).toEqual(horizontal);
+  await page.reload();expect(await points()).toEqual(horizontal);
+});

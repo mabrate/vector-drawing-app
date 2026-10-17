@@ -1,10 +1,27 @@
 // Repairs operate on path geometry; previews never replace the source artwork.
-export function installNodeTools({paper,art,getSelection,getNodes,setSelection,commit,say,nodePosition,detach}){
+export function installNodeTools({paper,art,getTool,getSelection,getNodes,setSelection,commit,say,nodePosition,detach}){
  const artItemIndex=path=>{let item=path;while(item.parent&&item.parent!==art)item=item.parent;return item.index;};
  const paths=()=>getSelection().flatMap(i=>i instanceof paper.Path?[i]:i instanceof paper.CompoundPath?i.children:[]);
  const endpoints=()=>getNodes().filter(s=>s.path&&!s.path.closed&&(s===s.path.firstSegment||s===s.path.lastSegment));
  const join=document.getElementById('join-nodes'),close=document.getElementById('close-path'),simplify=document.getElementById('simplify-path');
- function sync(){const ends=endpoints();join.disabled=getNodes().length!==2||ends.length!==2;close.disabled=!paths().some(p=>!p.closed&&p.segments.length>2);simplify.disabled=!paths().some(p=>p.segments.length>2);}
+ const panel=document.getElementById('panel-align'),objects=document.createElement('div');
+ objects.id='object-alignment';while(panel.firstChild)objects.append(panel.firstChild);panel.append(objects);
+ const nodeAlign=document.createElement('div');nodeAlign.id='node-alignment';nodeAlign.hidden=true;
+ nodeAlign.innerHTML='<h2>Align nodes</h2><label>Relative to <select id="node-align-reference"><option value="middle">Selection center</option><option value="first">First selected node</option><option value="last">Last selected node</option><option value="min">Minimum coordinate</option><option value="max">Maximum coordinate</option></select></label><div class="pair"><button data-node-align="y" title="Move selected nodes to a common horizontal line">Align horizontally</button><button data-node-align="x" title="Move selected nodes to a common vertical line">Align vertically</button></div><h2>Distribute nodes</h2><div class="pair"><button data-node-distribute="x">Distribute horizontally</button><button data-node-distribute="y">Distribute vertically</button></div><small id="node-align-count" aria-live="polite"></small><small>Select nodes with Shift, Select multiple nodes, or drag a selection box. Distribution spaces nodes evenly and keeps the outer nodes fixed.</small>';
+ panel.append(nodeAlign);
+ function arrange(axis,distribute){
+  const nodes=getNodes();if(nodes.length<(distribute?3:2))return;
+  const entries=nodes.map(segment=>({segment,point:nodePosition(segment)}));
+  const values=entries.map(o=>o.point[axis]),min=Math.min(...values),max=Math.max(...values),reference=document.getElementById('node-align-reference').value;
+  const target=reference==='first'?values[0]:reference==='last'?values.at(-1):reference==='min'?min:reference==='max'?max:(min+max)/2;
+  if(distribute)entries.sort((a,b)=>a.point[axis]-b.point[axis]);
+  detach(nodes);
+  entries.forEach((o,index)=>{const point=o.point.clone();point[axis]=distribute?min+(max-min)*index/(entries.length-1):target;o.segment.point=o.segment.path.globalToLocal(point);});
+  commit();say(distribute?'Distributed selected nodes.':'Aligned selected nodes.');
+ }
+ nodeAlign.querySelectorAll('[data-node-align]').forEach(button=>button.onclick=()=>arrange(button.dataset.nodeAlign,false));
+ nodeAlign.querySelectorAll('[data-node-distribute]').forEach(button=>button.onclick=()=>arrange(button.dataset.nodeDistribute,true));
+ function sync(){const nodeMode=getTool()==='nodes';objects.hidden=nodeMode;nodeAlign.hidden=!nodeMode;const count=getNodes().length;document.getElementById('node-align-count').textContent=`${count} node${count===1?'':'s'} selected`;nodeAlign.querySelectorAll('[data-node-align]').forEach(button=>button.disabled=count<2);nodeAlign.querySelectorAll('[data-node-distribute]').forEach(button=>button.disabled=count<3);const ends=endpoints();join.disabled=getNodes().length!==2||ends.length!==2;close.disabled=!paths().some(p=>!p.closed&&p.segments.length>2);simplify.disabled=!paths().some(p=>p.segments.length>2);}
  close.onclick=()=>{const targets=paths().filter(p=>!p.closed&&p.segments.length>2);detach(targets.flatMap(p=>p.segments));targets.forEach(p=>p.closed=true);commit();say(`Closed ${targets.length} path(s).`);};
  join.onclick=()=>{const ends=endpoints();if(getNodes().length!==2||ends.length!==2)return;const [a,b]=ends;if(a.path===b.path){detach([a,b]);a.path.closed=true;commit();say('Joined endpoints to close the path.');return;}
   // Bake both transforms into a new path before joining, preserving curve handles.
