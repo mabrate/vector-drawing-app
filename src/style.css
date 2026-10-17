@@ -167,4 +167,36 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 
 /* Give rotating tips room to wrap while keeping zoom controls accessible. */
 footer{height:auto;flex:0 0 auto;min-height:56px}footer>#status{white-space:normal;overflow:visible;line-height:1.4;overflow-wrap:anywhere}
-.context #corner-controls{display:flex;flex:0 0 auto;flex-direction:row;align-items:center;gap:8px;border:0;border-left:1px solid #d8e0dc;padding:0 0 0 8px;margin:0}.context #corner-controls label{display:flex;align-items:center;gap:4px;white-space:nowrap;font-size:12px}.context #corner-controls input[type=range]{width:100px}.context #corner-controls #corner-amount{width:65px;min-height:36px;padding:6px;border:1px solid #ccd8d5;border-radius:6px}.context #corner-controls select{font:inherit;padding:6px;border:1px solid #ccd8d5;border-radius:6px}.context #corner-help{display:none}
+#corner-controls{border-top:1px solid #d8e0dc;margin-top:18px;padding-top:16px}
+#corner-controls h2{margin:0 0 10px}
+#corner-controls label{display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;font-size:12px}
+#corner-controls select,#corner-controls #corner-amount{width:100px;min-height:38px;padding:6px;border:1px solid #ccd8d5;border-radius:6px;font:inherit;background:white;color:inherit}
+#corner-controls input[type=range]{width:100%;margin:8px 0 12px;accent-color:#267d81}
+#corner-controls button{width:100%;margin-bottom:8px;font-size:12px}
+#corner-help{display:block;font-size:12px;line-height:1.5;color:#617973}
+
+/* File actions stay visible; document settings live together in a modal. */
+header nav{overflow:visible}
+.file-dropdown{position:relative;display:flex}
+#file-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:50;min-width:170px;padding:6px;display:grid;gap:4px;background:white;border:1px solid #ccd8d5;border-radius:9px;box-shadow:0 6px 20px #192f3533}
+#file-menu[hidden]{display:none}
+#file-menu button{text-align:left;width:100%;font-size:14px;min-height:44px}
+#save{background:#c9f278;border-color:#a6d35a;color:#203c43;font-weight:700}
+#settings-dialog{width:400px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto}
+.settings-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.settings-heading h2{margin:0;font-size:22px}
+.settings-heading button{font-size:22px;padding:4px 12px}
+#settings-dialog section{margin-top:18px}
+#settings-dialog h3{margin:0 0 8px;font-size:15px}
+#settings-dialog label{display:flex;align-items:center;gap:10px;min-height:44px}
+#settings-dialog .unit-picker,.page-dimensions label{justify-content:space-between}
+#settings-dialog select,.page-dimensions input{width:130px;padding:9px;border:1px solid #ccd8d5;border-radius:6px;background:white;color:inherit;font:inherit}
+#settings-dialog input[type=checkbox]{width:20px;height:20px;accent-color:#267d81}
+#settings-dialog small{display:block;color:#617973;margin-top:6px}
+.settings-footer{display:flex;justify-content:flex-end;margin-top:20px}
+@media(max-height:500px) and (orientation:landscape){
+ header{display:flex;height:48px;padding:4px 8px}header>div{display:block}header span{display:none}
+ header nav{display:flex;position:static;width:auto;max-width:none;max-height:none;overflow:visible;flex-wrap:nowrap;padding:0;background:transparent;box-shadow:none}
+ main{height:calc(100dvh - 48px)}main>aside:first-child,.properties{top:96px;max-height:calc(100dvh - 96px)}
+}
+@media(max-width:450px){header>div{min-width:0}header b{font-size:14px}header span{display:none}header nav{gap:4px}header nav button{padding:6px;font-size:11px}}

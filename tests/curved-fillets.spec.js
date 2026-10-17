@@ -1,5 +1,6 @@
 import {test,expect} from '@playwright/test';
 import paper from 'paper';
+test.use({launchOptions:{executablePath:'/usr/bin/google-chrome'}});
 import {sourceFor,rebuildCorners,cornerModel,eligible} from '../src/corner-effects.js';
 import {solveCurvedFillet} from '../src/curved-fillets.js';
 test.beforeEach(()=>paper.setup(new paper.Size(1056,816)));
@@ -41,17 +42,17 @@ test('neighbouring curved fillets preserve the shared Bézier with exact subdivi
 });
 
 async function openCurve(page,d=fixtures[2]){
- await page.goto('/');await page.locator('#units').selectOption('px',{force:true});page.once('dialog',dialog=>dialog.accept());
+ await page.goto('/');await chooseUnits(page,'px');page.once('dialog',dialog=>dialog.accept());
  await page.locator('#file').setInputFiles({name:'curved-corner.svg',mimeType:'image/svg+xml',buffer:Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg"><path transform="translate(250 100) scale(3)" d="${d}" fill="none" stroke="black"/></svg>`)});
- await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');
+ await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await page.locator('[data-panel=align]').click();
 }
 const data=page=>page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1]);
 test('curved fillets remain editable after SVG download, undo and recovery',async({page})=>{
  await openCurve(page);const before=await data(page);await expect(page.locator('#apply-corner')).toBeEnabled();
  await page.locator('#corner-amount').fill('15');await page.locator('#apply-corner').click();expect((await data(page)).segments).toHaveLength(4);
- const downloadEvent=page.waitForEvent('download');await page.locator('#save').click();await page.locator('#download-svg').click();const download=await downloadEvent;page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles(await download.path());await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await expect(page.locator('#corner-amount')).toHaveValue('15');
+ const downloadEvent=page.waitForEvent('download');await page.locator('#save').click();await page.locator('#download-svg').click();const download=await downloadEvent;page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles(await download.path());await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await page.locator('[data-panel=align]').click();await expect(page.locator('#corner-amount')).toHaveValue('15');
  await page.locator('#corner-amount').fill('8');await page.locator('#apply-corner').click();expect((await data(page)).data.cornerEffect.effects[1].amount).toBeCloseTo(8,5);
- await page.locator('#canvas-undo').click();expect((await data(page)).data.cornerEffect.effects[1].amount).toBeCloseTo(15,5);await page.reload();await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');
+ await page.locator('#canvas-undo').click();expect((await data(page)).data.cornerEffect.effects[1].amount).toBeCloseTo(15,5);await page.reload();await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await page.locator('[data-panel=align]').click();
  await page.locator('#reset-corner').click();expect((await data(page)).segments).toEqual(before.segments);
 });
 
@@ -63,16 +64,16 @@ test('an impossible radius leaves browser recovery and corner selection intact',
 
 
 test('a failed corner in a multiple-path selection leaves every path unchanged',async({page})=>{
- await page.goto('/');await page.locator('#units').selectOption('px',{force:true});page.once('dialog',d=>d.accept());
+ await page.goto('/');await chooseUnits(page,'px');page.once('dialog',d=>d.accept());
  await page.locator('#file').setInputFiles({name:'two-corners.svg',mimeType:'image/svg+xml',buffer:Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M200 100L300 100L300 200" fill="none" stroke="black"/><path d="${fixtures[2]}" fill="none" stroke="black"/></svg>`)});
- await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');
+ await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await page.locator('[data-panel=align]').click();
  const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));await page.locator('#corner-amount').fill('10000');await page.locator('#apply-corner').click();await expect(page.locator('#status')).toContainText('does not fit');expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
 });
 
 
 test('a fillet split into multiple arc segments stays one editable corner after SVG reopening',async({page})=>{
  await openCurve(page,fixtures[5]);await page.locator('#corner-amount').fill('35');await page.locator('#apply-corner').click();expect((await data(page)).segments).toHaveLength(5);await page.screenshot({path:'/tmp/vector-lab-curved-fillets.png'});
- const waiting=page.waitForEvent('download');await page.locator('#save').click();await page.locator('#download-svg').click();const download=await waiting;page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles(await download.path());await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await expect(page.locator('#corner-amount')).toHaveValue('35');
+ const waiting=page.waitForEvent('download');await page.locator('#save').click();await page.locator('#download-svg').click();const download=await waiting;page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles(await download.path());await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-tool=nodes]').click();await page.keyboard.press('Control+a');await page.locator('[data-panel=align]').click();await expect(page.locator('#corner-amount')).toHaveValue('35');
  await page.locator('#corner-amount').fill('20');await page.locator('#apply-corner').click();expect((await data(page)).data.cornerEffect.effects[1].amount).toBe(20);
 });
 
@@ -84,3 +85,5 @@ test('a curved fillet at the first node of a closed path preserves the closing c
  for(let i=0;i<=20;i++){const t=i/20;expect(path.lastCurve.getPointAtTime(t).getDistance(closing.getPointAtTime(t))).toBeLessThan(1e-7);expect(path.curves[model.map.lastIndexOf(0)].getPointAtTime(t).getDistance(opening.getPointAtTime(t))).toBeLessThan(1e-7);}
  model.effects[0].amount=0;rebuildCorners(paper,path,model);expect(path.pathData).toBe(source.pathData);
 });
+
+async function chooseUnits(page,unit){await page.locator('#file-menu-button').click();await page.locator('#settings').click();await page.locator('#units').selectOption(unit);await page.locator('#settings-done').click();}

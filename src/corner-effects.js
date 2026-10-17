@@ -1,8 +1,19 @@
 import {rebuildCurvedCorners} from './curved-fillets.js';
+// Serialization rounds coordinates; compare geometry numerically so a harmless
+// round trip does not discard an otherwise valid editable corner.
+function sameCornerGeometry(path,geometry){
+ if(typeof geometry!=='string'||geometry.length>3000000)return false;
+ if(geometry===path.pathData)return true;
+ let reference;
+ try{
+  reference=new path.constructor({pathData:geometry,insert:false});
+  return reference.closed===path.closed&&reference.segments.length===path.segments.length&&reference.segments.every((s,i)=>['point','handleIn','handleOut'].every(key=>s[key].getDistance(path.segments[i][key])<0.00003));
+ }catch{return false;}finally{reference?.remove();}
+}
 // Keep the sharp source separate from generated tangent points.
 export function cornerModel(path){
  const saved=path.data.cornerEffect;
- if(saved?.version===1&&Array.isArray(saved.source)&&saved.source.length>=2&&saved.source.length<=10000&&saved.source.every(s=>Array.isArray(s)&&s.length===3&&s.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))&&Array.isArray(saved.map)&&saved.map.length===path.segments.length&&saved.map.every(i=>Number.isInteger(i)&&i>=0&&i<saved.source.length)&&saved.geometry===path.pathData&&saved.closed===path.closed&&saved.effects&&Object.values(saved.effects).every(e=>e&&['fillet','chamfer'].includes(e.type)&&Number.isFinite(e.amount)&&e.amount>=0)){
+ if(saved?.version===1&&Array.isArray(saved.source)&&saved.source.length>=2&&saved.source.length<=10000&&saved.source.every(s=>Array.isArray(s)&&s.length===3&&s.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))&&Array.isArray(saved.map)&&saved.map.length===path.segments.length&&saved.map.every(i=>Number.isInteger(i)&&i>=0&&i<saved.source.length)&&sameCornerGeometry(path,saved.geometry)&&saved.closed===path.closed&&saved.effects&&Object.values(saved.effects).every(e=>e&&['fillet','chamfer'].includes(e.type)&&Number.isFinite(e.amount)&&e.amount>=0)){
   const matrix=path.globalMatrix.values;
   if(saved.matrix&&matrix.some((v,i)=>Math.abs(v-saved.matrix[i])>1e-9)){
    const world=p=>({x:matrix[0]*p[0]+matrix[2]*p[1]+matrix[4],y:matrix[1]*p[0]+matrix[3]*p[1]+matrix[5]});
@@ -60,14 +71,15 @@ export function rebuildCorners(paper,path,model){
  });
  path.applyMatrix=false;path.removeSegments();path.addSegments(segments);path.data.nodeModes=map.map((i,index)=>info[i]?(info[i].effect.type==='fillet'?'round':'corner'):(model.modes?.[i]||'corner'));model.map=map;model.geometry=path.pathData;model.matrix=path.globalMatrix.values;path.data.cornerEffect=model;
 }
-export function installCornerControls({paper,getNodes,getSelection,setSelection,commit,refresh,say,getUnit=()=>'px',getUnitScale=()=>1}){
- const controls=document.createElement('div');controls.id='corner-controls';controls.innerHTML='<label>Corner treatment <select id="corner-type"><option value="fillet">Fillet</option><option value="chamfer">Chamfer</option></select></label><label><span id="corner-amount-label">Radius (px)</span> <input id="corner-amount" type="number" min="0" max="100000" step="1" value="10"></label><input id="corner-slider" aria-label="Corner amount" type="range" min="0" max="100" step="0.5" value="10"><button id="apply-corner">Apply corner</button><button id="reset-corner">Restore sharp corner</button><small id="corner-help">Select sharp corners between lines or curves. Chamfers require straight lines. Adjust either tangent node to edit an existing corner.</small>';
- controls.title='Select sharp corners between lines or curves. Chamfers require straight lines. Select either tangent node to edit an existing corner. Direct node edits turn treatments into ordinary paths.';document.getElementById('panel-nodes').insertBefore(controls,document.getElementById('join-nodes'));
+export function installCornerControls({paper,getNodes,getSelection,setSelection,commit,refresh,say,getTool=()=>'nodes',getUnit=()=>'px',getUnitScale=()=>1}){
+ const controls=document.createElement('div');controls.id='corner-controls';controls.innerHTML='<h2>Corner treatment</h2><label>Type <select id="corner-type"><option value="fillet">Fillet</option><option value="chamfer">Chamfer</option></select></label><label><span id="corner-amount-label">Radius (px)</span> <input id="corner-amount" type="number" min="0" max="100000" step="1" value="10"></label><input id="corner-slider" aria-label="Corner amount" type="range" min="0" max="100" step="0.5" value="10"><button id="apply-corner">Apply corner</button><button id="reset-corner">Restore sharp corner</button><small id="corner-help">Select sharp corners between lines or curves. Chamfers require straight lines. Purple rings mark treated corners. Select either tangent node to edit an existing corner.</small>';
+ controls.title='Select sharp corners between lines or curves. Chamfers require straight lines. Select either tangent node to edit an existing corner. Direct node edits turn treatments into ordinary paths.';document.getElementById('panel-align').append(controls);
  const type=controls.querySelector('#corner-type'),amount=controls.querySelector('#corner-amount'),slider=controls.querySelector('#corner-slider'),apply=controls.querySelector('#apply-corner'),reset=controls.querySelector('#reset-corner');
  function targets(treatment=type.value){const paths=new Map();return getNodes().filter(s=>{if(!paths.has(s.path)){const model=cornerModel(s.path);paths.set(s.path,{model,source:model?.source||sourceFor(s.path)});}const {model,source}=paths.get(s.path);return eligible(source,model?model.map[s.index]:s.index,s.path.closed,treatment);});}
  let displayedScale=1;
  const display=value=>Number(value.toFixed(8));
  function sync(){
+  controls.hidden=getTool()!=='nodes';
   const scale=getUnitScale(),changed=scale!==displayedScale;
   if(changed){amount.value=display(Number(amount.value)*displayedScale/scale);displayedScale=scale;}
   const nodes=targets();apply.disabled=slider.disabled=amount.disabled=!nodes.length;type.disabled=!targets('fillet').length;reset.disabled=!targets('fillet').length;
