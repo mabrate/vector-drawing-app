@@ -242,3 +242,11 @@ Fill and Stroke include **No fill / No stroke**, shown with a red slash on the c
 ## Stroke endcaps and line patterns
 
 In **Fill and Outline**, choose **Flat**, **Round**, or **Square** endcaps, and **Solid**, **Dashed**, or **Dotted** lines. Endcaps affect open line ends and individual dashes. Dotted lines use round caps automatically. Preset dash and dot spacing follows stroke width; imported custom SVG dash patterns are preserved. These styles apply to selected artwork or the next shape, support Undo, and survive SVG saving/reopening.
+
+## Fillets and chamfers
+
+In **Nodes**, select a corner between two straight segments, choose **Fillet** (round) or **Chamfer** (bevel), and enter a **Radius** or **Distance** in the selected page units (in, mm, px, or pt). Changing units converts the displayed amount without changing the corner. Use **Apply corner**, or adjust the slider for a live preview. The controls extend the scrolling node toolbar. Multiple selected corners can be treated together.
+
+Other anchors and the directions of adjoining lines stay fixed. Each treatment stops at half the shorter adjoining edge to prevent neighbouring treatments from overlapping. Select either generated tangent node to adjust that corner again; **Restore sharp corner** returns to its original geometry. Endpoints, straight-through nodes, and corners adjoining curves are excluded.
+
+Corner settings support Undo, local recovery, copy/paste, and SVG save/reopen. SVGs contain ordinary paths plus editing metadata. Moving, rotating, and resizing the object preserve corner settings; changing its individual nodes, handles, or topology turns the path into ordinary editable geometry. Undo restores the settings.

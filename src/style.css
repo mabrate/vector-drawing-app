@@ -167,3 +167,4 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 
 /* Give rotating tips room to wrap while keeping zoom controls accessible. */
 footer{height:auto;flex:0 0 auto;min-height:56px}footer>#status{white-space:normal;overflow:visible;line-height:1.4;overflow-wrap:anywhere}
+.context #corner-controls{display:flex;flex:0 0 auto;flex-direction:row;align-items:center;gap:8px;border:0;border-left:1px solid #d8e0dc;padding:0 0 0 8px;margin:0}.context #corner-controls label{display:flex;align-items:center;gap:4px;white-space:nowrap;font-size:12px}.context #corner-controls input[type=range]{width:100px}.context #corner-controls #corner-amount{width:65px;min-height:36px;padding:6px;border:1px solid #ccd8d5;border-radius:6px}.context #corner-controls select{font:inherit;padding:6px;border:1px solid #ccd8d5;border-radius:6px}.context #corner-help{display:none}

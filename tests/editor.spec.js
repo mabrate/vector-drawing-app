@@ -590,7 +590,7 @@ test('compact dimensions display three decimals without changing untouched geome
   await page.locator('#position-x').fill('120.123456');await page.locator('#position-x').press('Enter');await expect(page.locator('#position-x')).toHaveValue('120.123');
   const first=await page.evaluate(()=>{const p=JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1].segments[0];return Array.isArray(p[0])?p[0]:p;});expect(first[0]).toBeCloseTo(120.123456,5);const originalPoint=JSON.parse(before)[1].children[0][1].segments[0];expect(first[1]).toBe(Array.isArray(originalPoint[0])?originalPoint[0][1]:originalPoint[1]);
   await page.locator('#canvas').focus();await page.keyboard.press('n');await expect(page.locator('#node-count')).toBeHidden();await expect(page.getByRole('button',{name:'Corner',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Round',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Symmetric',exact:true})).toBeVisible();
-  expect((await page.locator('#panel-nodes').boundingBox()).width).toBeLessThan(270);await page.locator('#node-round').scrollIntoViewIfNeeded();await page.screenshot({path:'/tmp/vector-lab-compact-toolbar.png'});
+  expect((await page.locator('#panel-nodes .node-actions').boundingBox()).width).toBeLessThan(150);await page.locator('#node-round').scrollIntoViewIfNeeded();await page.screenshot({path:'/tmp/vector-lab-compact-toolbar.png'});
 });
 
 test('sailboat trace preserves straight sails while retaining curved hull paths',async({page})=>{
