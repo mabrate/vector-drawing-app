@@ -164,3 +164,6 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 .no-color[aria-pressed=true]{outline:2px solid #267d81}
 
 #canvas.middle-panning{cursor:grabbing!important}
+
+/* Give rotating tips room to wrap while keeping zoom controls accessible. */
+footer{height:auto;flex:0 0 auto;min-height:56px}footer>#status{white-space:normal;overflow:visible;line-height:1.4;overflow-wrap:anywhere}
