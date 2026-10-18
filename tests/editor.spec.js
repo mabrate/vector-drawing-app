@@ -246,7 +246,7 @@ test('background removal selects connected colors, protects areas and survives e
   await page.locator('#background-preview').check();
   expect(await page.locator('#background-canvas').evaluate(c=>[...c.getContext('2d').getImageData(10,10,1,1).data])).toEqual([0,0,0,0]);
   await page.locator('#background-apply').click();await expect(page.locator('#background-dialog')).toBeHidden();
-  expect(await page.evaluate(()=>{const item=JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1];return {matrix:item.matrix,crop:item.data.crop,mask:item.children[0]};})).toEqual(geometry);
+  const cropped=await page.evaluate(()=>{const item=JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1];return {matrix:item.matrix,crop:item.data.crop,mask:item.children[0]};});expect(cropped.matrix).toEqual(geometry.matrix);expect(cropped.crop.right).toBeGreaterThanOrEqual(geometry.crop.right);expect(cropped.mask).not.toEqual(geometry.mask);
   let values=await exportedImagePixels(page);expect(values[0][3]).toBe(0);expect(values[1][3]).toBe(255);expect(values[2]).toEqual([255,0,0,255]);expect(values[3]).toEqual([255,255,255,255]);
   await page.locator('#undo').click();expect((await exportedImagePixels(page))[0][3]).toBe(255);
   await page.locator('#redo').click();await page.reload();expect((await exportedImagePixels(page))[0][3]).toBe(0);

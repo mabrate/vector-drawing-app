@@ -161,11 +161,22 @@ function contoursForColor(labels,width,height,color,minArea){
 // Average each grid cell before reducing colors; output exact rectangular paths.
 function pixelArt({data,width,height,overrides},settings){
   const size=[16,24,32,48,64,128].includes(Number(settings.pixelSize))?Number(settings.pixelSize):32;
-  const scale=Math.min(1,size/Math.max(width,height)),w=Math.max(1,Math.round(width*scale)),h=Math.max(1,Math.round(height*scale));
+  const block=settings.pixelSizing==='block';
+  const blockSize=Number(settings.blockSize??4),artWidth=Number(settings.artworkWidth??width),artHeight=Number(settings.artworkHeight??height);
+  if(block&&(!Number.isFinite(blockSize)||blockSize<1||blockSize>256||!Number.isFinite(artWidth)||artWidth<=0||!Number.isFinite(artHeight)||artHeight<=0))throw Error('Choose a block size from 1 to 256 px.');
+  let left=width,top=height,right=0,bottom=0;
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++){const i=y*width+x;if(overrides?.[i]!==2&&data[i*4+3]>=128){left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x+1);bottom=Math.max(bottom,y+1);}}
+  if(right<=left||bottom<=top)return {width,height,gridWidth:0,gridHeight:0,shapes:[],nodes:0,contourCount:0,selection:new Uint8Array(width*height),tooComplex:false,pixelArt:true,removed:0};
+  const spanX=right-left,spanY=bottom-top,scale=Math.min(1,size/Math.max(spanX,spanY));
+  const stepX=block?blockSize*width/artWidth:spanX/Math.max(1,Math.round(spanX*scale));
+  const stepY=block?blockSize*height/artHeight:spanY/Math.max(1,Math.round(spanY*scale));
+  const w=Math.max(1,Math.ceil(spanX/stepX-1e-9)),h=Math.max(1,Math.ceil(spanY/stepY-1e-9));
+  if(w>512||h>512||w*h>65536)throw Error('Too many blocks. Choose a larger block size or make the image smaller first.');
+  const edgeX=x=>Math.min(right,left+x*stepX),edgeY=y=>Math.min(bottom,top+y*stepY);
   const pixels=new Uint8ClampedArray(w*h*4),marks=new Uint8Array(w*h);
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
     const sum=[0,0,0];let alpha=0,count=0,include=0,exclude=0;
-    for(let yy=Math.floor(y*height/h);yy<Math.floor((y+1)*height/h);yy++)for(let xx=Math.floor(x*width/w);xx<Math.floor((x+1)*width/w);xx++){
+    for(let yy=Math.floor(edgeY(y));yy<Math.max(Math.floor(edgeY(y))+1,Math.ceil(edgeY(y+1)));yy++)for(let xx=Math.floor(edgeX(x));xx<Math.max(Math.floor(edgeX(x))+1,Math.ceil(edgeX(x+1)));xx++){
       const i=yy*width+xx,a=data[i*4+3]/255;for(let c=0;c<3;c++)sum[c]+=data[i*4+c]*a;alpha+=a;count++;
       if(overrides?.[i]===1)include++;if(overrides?.[i]===2)exclude++;
     }
@@ -184,11 +195,13 @@ function pixelArt({data,width,height,overrides},settings){
     const contours=[];
     for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(labels[y*w+x]===index){
       const start=x;while(x+1<w&&labels[y*w+x+1]===index)x++;
-      contours.push([[start,y],[x+1,y],[x+1,y+1],[start,y+1]]);
+      contours.push([[edgeX(start),edgeY(y)],[edgeX(x+1),edgeY(y)],[edgeX(x+1),edgeY(y+1)],[edgeX(start),edgeY(y+1)]]);
     }
     contourCount+=contours.length;return {fill:'#'+rgb.map(v=>v.toString(16).padStart(2,'0')).join(''),contours};
   }).filter(shape=>shape.contours.length);
-  return {width:w,height:h,shapes,nodes:contourCount*4,contourCount,selection:Uint8Array.from(labels,v=>Number(v>=0)),tooComplex:false,pixelArt:true,removed:0};
+  const selection=new Uint8Array(width*height);
+  for(let y=top;y<bottom;y++)for(let x=left;x<right;x++){const gx=Math.min(w-1,Math.floor((x-left)/stepX)),gy=Math.min(h-1,Math.floor((y-top)/stepY));selection[y*width+x]=Number(labels[gy*w+gx]>=0);}
+  return {width,height,gridWidth:w,gridHeight:h,shapes,nodes:contourCount*4,contourCount,selection,tooComplex:false,pixelArt:true,removed:0};
 }
 
 export function traceImage({data,width,height,overrides},settings={}){

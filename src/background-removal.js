@@ -1,3 +1,4 @@
+import {toolPreferences} from './tool-preferences.js';
 // Four-connected, seed-relative color matching prevents a gradual color ramp
 // from leaking into unrelated colors. Selection is independent of image alpha.
 export function createBackgroundSelection(pixels, width, height) {
@@ -39,13 +40,15 @@ export function installBackgroundRemoval({getImage,apply,say}){
     <div class="background-controls"><label>Brush <select id="background-mode"><option value="smart">Smart background</option><option value="paint">Select manually</option><option value="keep">Keep / subtract selection</option></select></label>
     <label>Color tolerance <input id="background-tolerance" type="range" min="0" max="100" value="15"><output id="background-tolerance-value">15%</output></label>
     <label>Brush size <input id="background-size" type="range" min="2" max="100" value="16"><output id="background-size-value">16 px</output></label></div>
-    <div class="background-actions"><button id="background-edges">Select from edges</button><button id="background-undo">Undo selection</button><button id="background-clear">Clear selection</button><label><input id="background-preview" type="checkbox"> Preview removal</label></div>
+    <div class="background-actions"><button id="background-edges">Select from edges</button><button id="background-undo">Undo selection</button><button id="background-clear">Clear selection</button><button id="background-reset">Reset defaults</button><label><input id="background-preview" type="checkbox"> Preview removal</label></div>
     <div class="background-actions"><button id="background-zoom-out" aria-label="Zoom preview out">−</button><output id="background-zoom-value">100%</output><button id="background-zoom-in" aria-label="Zoom preview in">+</button><button id="background-fit">Fit preview</button><small>Pinch or Ctrl+scroll to zoom; drag with two fingers to pan.</small></div>
     <div class="background-workspace"><canvas id="background-canvas" tabindex="0" aria-label="Paint background selection"></canvas></div>
-    <p id="background-feedback" role="status"></p><small>Pink marks areas to remove. Tolerance applies to the next smart stroke or edge selection. This view shows the full image; your crop stays in place.</small>
+    <p id="background-feedback" role="status"></p><small>Pink marks areas to remove. Tolerance applies to the next smart stroke or edge selection. This view shows the full image. Empty edges are cropped when you apply; existing crops stay in place.</small>
     <div class="background-footer"><button id="background-cancel">Cancel</button><button id="background-apply" class="primary" disabled>Remove selected background</button></div>`;
   document.body.append(dialog);
   const el=id=>dialog.querySelector(`#background-${id}`),canvas=el('canvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});
+  const preferences=toolPreferences('vector-lab-background-settings',Object.fromEntries(['mode','tolerance','size','preview'].map(name=>[name,el(name)])));
+  dialog.addEventListener('input',event=>{if(event.target.matches('input,select'))preferences.save();});
   let session=null,selection=null,original=null,source=null,undos=[],stroke=null;
   const workspace=canvas.parentElement,pointers=new Map();
   let zoom=1,base=1,offset={x:0,y:0},pinch=null;
@@ -87,6 +90,8 @@ export function installBackgroundRemoval({getImage,apply,say}){
   el('undo').onclick=()=>{if(undos.length)selection.mask.set(undos.pop());render();};
   el('clear').onclick=()=>{remember();selection.mask.fill(0);render();};el('preview').onchange=render;
   function updateCursor(){const size=Number(el('size').value)+4,center=size/2,radius=(size-4)/2,color=el('mode').value==='keep'?'#267d81':'#ed286e';const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}"><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="white" stroke-width="3"/><circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${color}" stroke-width="1"/></svg>`;canvas.style.cursor=`url("data:image/svg+xml,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;}
+  function syncSettings(){for(const key of ['size','tolerance'])el(`${key}-value`).textContent=el(key).value+(key==='size'?' px':'%');updateCursor();}
+  el('reset').onclick=()=>{if(stroke)return;preferences.reset();syncSettings();render();};
   el('mode').onchange=updateCursor;
   for(const key of ['size','tolerance'])el(key).oninput=()=>{el(`${key}-value`).textContent=el(key).value+(key==='size'?' px':'%');updateCursor();};
   for(const key of ['close','cancel'])el(key).onclick=()=>dialog.close();
@@ -106,7 +111,7 @@ export function installBackgroundRemoval({getImage,apply,say}){
     try{
       source=document.createElement('canvas');source.width=session.canvas.width;source.height=session.canvas.height;source.getContext('2d').drawImage(session.canvas,0,0);
       const scale=Math.min(1,1600/Math.max(source.width,source.height));canvas.width=Math.max(1,Math.round(source.width*scale));canvas.height=Math.max(1,Math.round(source.height*scale));
-      ctx.drawImage(source,0,0,canvas.width,canvas.height);original=ctx.getImageData(0,0,canvas.width,canvas.height);selection=createBackgroundSelection(original.data,canvas.width,canvas.height);undos=[];stroke=null;el('preview').checked=false;el('mode').value='smart';dialog.showModal();fitPreview();updateCursor();render();
+      ctx.drawImage(source,0,0,canvas.width,canvas.height);original=ctx.getImageData(0,0,canvas.width,canvas.height);selection=createBackgroundSelection(original.data,canvas.width,canvas.height);undos=[];stroke=null;dialog.showModal();fitPreview();syncSettings();render();
     }catch{session=selection=original=source=null;say('Could not read this image. Try inserting a local image file.');}
   };
 }

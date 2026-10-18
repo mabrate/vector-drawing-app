@@ -1,3 +1,4 @@
+import {alphaBounds} from './alpha-bounds.js';
 import {embedEditableSVG,readEditableSVG} from './editable-png.js';
 import {createPNG} from './png-export.js';
 import {installCornerControls,cornerModel} from './corner-effects.js';
@@ -422,7 +423,23 @@ $('start-crop').onclick=()=>setTool('crop');
 const backgroundButton=document.createElement('button');backgroundButton.id='remove-background';backgroundButton.textContent='Background';backgroundButton.title='Remove background';backgroundButton.setAttribute('aria-label','Remove background');$('image-crop').append(backgroundButton);
 backgroundButton.onclick=installBackgroundRemoval({
 getImage(){finish();const item=selected.length===1?selected[0]:null,parts=imageParts(item);return parts?{item,raster:parts.raster,canvas:parts.raster.canvas}:null;},
-apply(session,canvas){if(!session.item.isInserted())return;session.raster.setImage(canvas);commit();say('Background removed. Undo restores the image.');},say
+apply(session,canvas){
+if(!session.item.isInserted())return;
+const parts=imageParts(session.item);if(!parts)return;
+const bounds=alphaBounds(canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height));
+if(bounds){
+// Crop the mask, not the raster: keep image pixels, transforms and placement.
+const crop=new paper.Path.Rectangle({rectangle:new paper.Rectangle(bounds.left-canvas.width/2,bounds.top-canvas.height/2,bounds.right-bounds.left,bounds.bottom-bounds.top),insert:false});
+crop.transform(parts.raster.matrix);
+const b=parts.raster.bounds,box=crop.bounds,previous=session.item.data.crop||{left:0,right:0,top:0,bottom:0};
+const replacement=parts.mask.intersect(crop,{insert:false});crop.remove();
+if(!replacement.isEmpty()&&Math.abs(replacement.area)>1e-8){
+replacement.clipMask=true;parts.mask.replaceWith(replacement);
+session.item.data.crop={left:Math.max(previous.left,(box.left-b.left)/b.width*100),right:Math.max(previous.right,(b.right-box.right)/b.width*100),top:Math.max(previous.top,(box.top-b.top)/b.height*100),bottom:Math.max(previous.bottom,(b.bottom-box.bottom)/b.height*100)};
+}else replacement.remove();
+}
+session.raster.setImage(canvas);cropSelection=null;commit();say(bounds?'Background removed and empty edges cropped. Undo restores the image.':'Background removed. No visible pixels remain. Undo restores the image.');
+},say
 });
 const traceButton=document.createElement('button');traceButton.id='trace-image';traceButton.textContent='Trace';traceButton.title='Trace image to editable paths';traceButton.setAttribute('aria-label','Trace image');$('image-crop').append(traceButton);
 traceButton.onclick=installImageTracing({
@@ -438,7 +455,7 @@ if(!Number.isFinite(span)||span<=0)throw Error('This image has no visible area t
 raster=copy.rasterize({resolution:72*768/span,insert:false});
 const canvas=raster.canvas,image=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);
 const matrix=item.globalMatrix.appended(raster.matrix).translate(-canvas.width/2,-canvas.height/2);
-return {item,image,matrix};
+return {item,image,matrix,artworkWidth:Math.hypot(matrix.a,matrix.b)*image.width,artworkHeight:Math.hypot(matrix.c,matrix.d)*image.height};
 }finally{raster?.remove();copy?.remove();}
 },
 apply(session,result){
@@ -458,7 +475,7 @@ const index=session.item.index;paths.forEach((path,i)=>art.insertChild(index+i,p
 });
 $('apply-crop').onclick=()=>cropImage();$('reset-crop').onclick=()=>cropImage(true);
 function choosePNGImport(){const dialog=$('png-import-dialog');dialog.returnValue='cancel';return new Promise(resolve=>{dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true});dialog.showModal();});}
-async function insertImages(files){finish();try{const added=[];for(const file of files){if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type))throw Error('Choose a PNG, JPEG, WebP, or GIF image.');if(file.size>15e6)throw Error('Please use images smaller than 15 MB.');if(file.type==='image/png'){const svg=await readEditableSVG(file);if(svg){let imported;try{imported=parseSVG(svg);}catch{}if(imported){const choice=await choosePNGImport();if(choice==='editable'){imported.items.forEach(item=>{art.addChild(item);added.push(item);});ensureDocumentFonts();continue;}if(choice!=='image')continue;}}}const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Could not read image.'));reader.readAsDataURL(file);});const image=new Image();image.src=source;await image.decode();const raster=new paper.Raster({image,insert:false});const scale=Math.min(1,pageSize.width*.7/raster.width,pageSize.height*.7/raster.height);raster.scale(scale);const mask=new paper.Path.Rectangle({rectangle:raster.bounds,insert:false});mask.clipMask=true;const group=new paper.Group({children:[mask,raster],insert:false});group.data.image=true;group.applyMatrix=false;group.position=new paper.Point(pageSize.width/2+added.length*20,pageSize.height/2+added.length*20);art.addChild(group);added.push(group);}selected=added;setTool('select');commit();say(added.length?'Inserted. Select an object to edit.':'Import cancelled.');}catch(error){commit();say(error.message||'Could not decode image.');}}
+async function insertImages(files){finish();try{const added=[];for(const file of files){if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type))throw Error('Choose a PNG, JPEG, WebP, or GIF image.');if(file.size>15e6)throw Error('Please use images smaller than 15 MB.');if(file.type==='image/png'){const svg=await readEditableSVG(file);if(svg){let imported;try{imported=parseSVG(svg);}catch{}if(imported){const choice=await choosePNGImport();if(choice==='editable'){imported.items.forEach(item=>{art.addChild(item);added.push(item);});ensureDocumentFonts();continue;}if(choice!=='image')continue;}}}const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Could not read image.'));reader.readAsDataURL(file);});const image=new Image();image.src=source;await image.decode();const raster=new paper.Raster({image,insert:false});const scale=Math.min(1,pageSize.width*.7/raster.width,pageSize.height*.7/raster.height);raster.scale(scale);const mask=new paper.Path.Rectangle({rectangle:raster.bounds,insert:false});mask.clipMask=true;const group=new paper.Group({children:[mask,raster],insert:false});group.data.image=true;group.applyMatrix=false;group.position=new paper.Point(pageSize.width/2+added.length*20,pageSize.height/2+added.length*20);art.addChild(group);added.push(group);}selected=added;setTool('select');commit();say(added.length?(added.every(imageParts)?'Image inserted. Crop controls are above the canvas.':'Inserted. Select an object to edit.'):'Import cancelled.');}catch(error){commit();say(error.message||'Could not decode image.');}}
 $('insert-image').onclick=()=>$('image-file').click();$('image-file').onchange=e=>{const files=[...e.target.files];e.target.value='';if(files.length)insertImages(files);};
 
 var preserveDimensionViewUntil=0;

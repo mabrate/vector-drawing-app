@@ -1,3 +1,4 @@
+import {toolPreferences} from './tool-preferences.js';
 import {TRACE_PRESETS,tracePathData} from './image-tracing.js';
 import {createTraceRefinement} from './trace-refinement.js';
 
@@ -7,6 +8,8 @@ export function installImageTracing({getImage,apply,say}){
   <p>Choose Solid silhouette or Cutout outline for a whole subject, Black and white for dark details, Colors for illustrations, or Pixel art for a square-pixel version.</p>
   <div class="trace-controls">
     <label>Trace mode<select id="trace-mode"><option value="mono">Black and white</option><option value="silhouette">Solid silhouette</option><option value="outline">Cutout outline</option><option value="color">Colors</option><option value="pixel">Pixel art</option></select></label>
+    <label id="trace-pixel-sizing-control" hidden>Pixel sizing<select id="trace-pixel-sizing"><option value="detail">Pixels on longest side</option><option value="block">Consistent block size</option></select></label>
+    <label id="trace-block-control" hidden>Block size (px)<input id="trace-block" type="number" min="1" max="256" step="1" value="4"></label>
     <label id="trace-pixel-control" hidden>Pixels on longest side<select id="trace-pixel"><option>16</option><option>24</option><option selected>32</option><option>48</option><option>64</option><option>128</option></select></label>
     <label id="trace-preset-control">Detail / complexity<select id="trace-preset"><option value="simple">Simple · 1,000</option><option value="balanced">Balanced · 2,000</option><option value="detailed">Detailed · 5,000</option></select></label>
     <label id="trace-threshold-control">Darkness threshold<div class="trace-range"><input id="trace-threshold" type="range" min="0" max="255" value="128"><output id="trace-threshold-value">50%</output></div></label>
@@ -16,7 +19,7 @@ export function installImageTracing({getImage,apply,say}){
     <label id="trace-smoothing-control" title="Low values preserve pixel detail. High values remove small bumps and fit broader curves while protecting corners.">Edge smoothing<div class="trace-range"><input id="trace-smoothing" type="range" min="0" max="100" value="70"><output id="trace-smoothing-value">70%</output></div></label>
     <label id="trace-noise-control">Remove small specks<div class="trace-range"><input id="trace-noise" type="range" min="0" max="100" value="12"><output id="trace-noise-value">12</output></div></label>
   </div>
-  <div class="trace-options"><label id="trace-invert-control"><input id="trace-invert" type="checkbox"> Trace light areas instead</label><label id="trace-white-control" hidden><input id="trace-white" type="checkbox" checked> Leave white empty</label><label id="trace-holes-control"><input id="trace-holes" type="checkbox"> Fill enclosed holes</label><label id="trace-stack-control" hidden title="Overlap color layers to prevent pale seams. Turn off for separate color regions."><input id="trace-stack" type="checkbox" checked> Stack colors to hide seams</label><button id="trace-use-silhouette" hidden>Try solid silhouette</button><button id="trace-reset">Reset all</button></div>
+  <div class="trace-options"><label id="trace-invert-control"><input id="trace-invert" type="checkbox"> Trace light areas instead</label><label id="trace-white-control" hidden><input id="trace-white" type="checkbox" checked> Leave white empty</label><label id="trace-holes-control"><input id="trace-holes" type="checkbox"> Fill enclosed holes</label><label id="trace-stack-control" hidden title="Overlap color layers to prevent pale seams. Turn off for separate color regions."><input id="trace-stack" type="checkbox" checked> Stack colors to hide seams</label><button id="trace-use-silhouette" hidden>Try solid silhouette</button><button id="trace-reset">Reset defaults</button></div>
   <fieldset class="trace-refinement"><legend>Touch up the trace</legend><div class="trace-refinement-controls"><label>Tool <select id="trace-brush-mode"><option value="view">View only</option><option value="include">Include brush</option><option value="exclude">Exclude brush</option><option value="spot">Remove spot</option><option value="erase">Erase marks</option></select></label><label>Brush size <input id="trace-brush-size" type="range" min="2" max="100" value="20"><output id="trace-brush-size-value">20 px</output></label><button id="trace-edit-undo" disabled>Undo edit</button><button id="trace-edit-clear" disabled>Clear marks</button></div><small>Paint on either preview. Green includes missing parts; pink excludes shadows. Remove spot deletes a connected traced shape. Use a brush for shadows attached to the subject.</small></fieldset>
   <div class="trace-zoom"><span>Preview zoom</span><button id="trace-zoom-out" aria-label="Zoom trace out">−</button><output id="trace-zoom-value">100%</output><button id="trace-zoom-in" aria-label="Zoom trace in">+</button><button id="trace-zoom-fit">Fit</button><small>Drag to pan with View only. Scroll over a preview to zoom.</small></div>
   <div class="trace-previews"><figure><figcaption>Visible image</figcaption><div class="trace-preview"><canvas id="trace-original" tabindex="0" aria-label="Original image preview"></canvas></div></figure><figure><figcaption>Vector paths</figcaption><div class="trace-preview" id="trace-result" tabindex="0" role="img" aria-label="Traced path preview"></div></figure></div>
@@ -24,6 +27,8 @@ export function installImageTracing({getImage,apply,say}){
   <div class="trace-footer"><span>Replaces the image. Undo restores it.</span><button id="trace-cancel">Cancel</button><button id="trace-apply" class="primary" disabled>Convert to paths</button></div>`;
   document.body.append(dialog);
   const el=name=>dialog.querySelector(`#trace-${name}`),originalCanvas=el('original');
+  const preferences=toolPreferences('vector-lab-trace-settings',Object.fromEntries(['mode','pixel','pixel-sizing','block','preset','colors','threshold','noise','invert','white','holes','smoothing','background','outline','stack','brush-mode','brush-size'].map(name=>[name,el(name)])));
+  dialog.addEventListener('input',event=>{if(event.target.matches('input,select'))preferences.save();});
   let session=null,result=null,worker=null,timer=null,revision=0,refinement=null,stroke=null,editHistory=[],presetChosen=false;
   let zoom=1,center={x:.5,y:.5},pan=null;
   const previews=[originalCanvas.parentElement,el('result')];
@@ -60,21 +65,21 @@ export function installImageTracing({getImage,apply,say}){
   }
   new ResizeObserver(updateZoom).observe(previews[0]);
   function stop(){clearTimeout(timer);timer=null;worker?.terminate();worker=null;}
-  function settings(){return {pixelSize:Number(el('pixel').value),mode:el('mode').value,preset:el('preset').value,colors:Number(el('colors').value),threshold:Number(el('threshold').value),noise:Number(el('noise').value),invert:el('invert').checked,ignoreWhite:el('white').checked,fillHoles:el('holes').checked,smoothing:Number(el('smoothing').value),backgroundTolerance:Number(el('background').value),outlineWidth:Number(el('outline').value),stackColors:el('stack').checked};}
+  function settings(){return {pixelSizing:el('pixel-sizing').value,blockSize:Number(el('block').value),artworkWidth:session.artworkWidth,artworkHeight:session.artworkHeight,pixelSize:Number(el('pixel').value),mode:el('mode').value,preset:el('preset').value,colors:Number(el('colors').value),threshold:Number(el('threshold').value),noise:Number(el('noise').value),invert:el('invert').checked,ignoreWhite:el('white').checked,fillHoles:el('holes').checked,smoothing:Number(el('smoothing').value),backgroundTolerance:Number(el('background').value),outlineWidth:Number(el('outline').value),stackColors:el('stack').checked};}
   function controls(){
     const mode=el('mode').value,pixel=mode==='pixel',color=mode==='color'||pixel,subject=mode==='silhouette'||mode==='outline',preset=TRACE_PRESETS[el('preset').value];
-    el('pixel-control').hidden=!pixel;for(const name of ['preset-control','smoothing-control','noise-control'])el(name).hidden=pixel;
+    el('pixel-sizing-control').hidden=!pixel;el('block-control').hidden=!pixel||el('pixel-sizing').value!=='block';el('pixel-control').hidden=!pixel||el('pixel-sizing').value==='block';for(const name of ['preset-control','smoothing-control','noise-control'])el(name).hidden=pixel;
     for(const name of ['colors-control','white-control'])el(name).hidden=!color;
     for(const name of ['threshold-control','invert-control'])el(name).hidden=mode!=='mono';el('stack-control').hidden=mode!=='color';el('holes-control').hidden=color;el('background-control').hidden=!subject;el('outline-control').hidden=mode!=='outline';el('background-value').textContent=el('background').value+'%';el('outline-value').textContent=el('outline').value+'%';
     el('threshold-value').textContent=Math.round(Number(el('threshold').value)/255*100)+'%';el('noise-value').textContent=el('noise').value;el('smoothing-value').textContent=el('smoothing').value+'%';
-    el('help').textContent=pixel?'Each grid cell becomes a crisp, editable rectangle. Fewer pixels and colors give a chunkier look without changing the artwork’s size. White can be left empty; transparent areas stay empty.':`${preset.label} uses our limits of ${preset.maxNodes.toLocaleString()} nodes and ${preset.maxContours} outlines. Closed paths include real holes, with no background rectangle or outline stroke. ${color?'Stacked colors hide seams; turn stacking off for separate regions. Balanced or Detailed retains more small color details.':subject?'Transparent images use their visible shape. For opaque images, the background must be plain. Use Include/Exclude to correct the subject.':'Black and white selects dark pixels. Try Solid silhouette if a light-colored subject is incomplete.'}`;
+    el('help').textContent=pixel?'Set images to their intended game size before tracing. Use the same block size for matching pixels across assets. Resizing afterward also resizes the blocks. Transparent margins are skipped. Each grid cell becomes a crisp, editable rectangle. Fewer pixels and colors give a chunkier look without changing the artwork’s size. White can be left empty; transparent areas stay empty.':`${preset.label} uses our limits of ${preset.maxNodes.toLocaleString()} nodes and ${preset.maxContours} outlines. Closed paths include real holes, with no background rectangle or outline stroke. ${color?'Stacked colors hide seams; turn stacking off for separate regions. Balanced or Detailed retains more small color details.':subject?'Transparent images use their visible shape. For opaque images, the background must be plain. Use Include/Exclude to correct the subject.':'Black and white selects dark pixels. Try Solid silhouette if a light-colored subject is incomplete.'}`;
   }
   function renderTrace(value){
     el('result').replaceChildren();
     const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox',`0 0 ${value.width} ${value.height}`);svg.setAttribute('width',String(value.width));svg.setAttribute('height',String(value.height));
     for(const shape of value.shapes){const path=document.createElementNS(ns,'path');path.setAttribute('d',tracePathData(shape.contours,shape.segments));path.setAttribute('fill',shape.fill);path.setAttribute('fill-rule','nonzero');svg.append(path);}
     el('result').append(svg);updateZoom();el('result').setAttribute('aria-busy','false');
-    const summary=value.pixelArt?`${value.width} × ${value.height} pixels · ${value.shapes.length} colors`:`${value.nodes.toLocaleString()} nodes · ${value.contourCount.toLocaleString()} outlines · ${value.shapes.length} color${value.shapes.length===1?'':'s'}`;
+    const summary=value.pixelArt?`${value.gridWidth??value.width} × ${value.gridHeight??value.height} pixels · ${value.shapes.length} colors`:`${value.nodes.toLocaleString()} nodes · ${value.contourCount.toLocaleString()} outlines · ${value.shapes.length} color${value.shapes.length===1?'':'s'}`;
     el('status').classList.toggle('trace-error',value.tooComplex);
     el('status').textContent=value.tooComplex?`${summary}. Too complex for this limit. Increase speck removal, use fewer colors, or choose a higher limit.`:!value.shapes.length?'Nothing to trace. Adjust the threshold, switch light/dark, or reduce speck removal.':`${summary}${value.removed?` · ${value.removed} small details removed`:''}${value.holesFilled?` · ${value.holesFilled} enclosed holes filled`:''}${value.correctedPixels?' · Manual corrections applied':''}${value.adjusted?' · Simplified further to fit the node limit':''}.`;
     el('use-silhouette').hidden=!value.recommendSilhouette;
@@ -133,7 +138,7 @@ export function installImageTracing({getImage,apply,say}){
     timer=setTimeout(()=>{
       if(!session||!dialog.open||current!==revision)return;
       try{
-        const options=settings(),limit=TRACE_PRESETS[options.preset].resolution,scale=Math.min(1,limit/Math.max(originalCanvas.width,originalCanvas.height)),sample=document.createElement('canvas');
+        const options=settings(),limit=options.mode==='pixel'?768:TRACE_PRESETS[options.preset].resolution,scale=Math.min(1,limit/Math.max(originalCanvas.width,originalCanvas.height)),sample=document.createElement('canvas');
         sample.width=Math.max(1,Math.round(originalCanvas.width*scale));sample.height=Math.max(1,Math.round(originalCanvas.height*scale));const context=sample.getContext('2d');const source=document.createElement('canvas');source.width=session.image.width;source.height=session.image.height;source.getContext('2d').putImageData(session.image,0,0);context.drawImage(source,0,0,sample.width,sample.height);const pixels=context.getImageData(0,0,sample.width,sample.height),overrides=refinement.sample(sample.width,sample.height);
         worker=new Worker(new URL('./image-tracing.worker.js',import.meta.url),{type:'module'});
         const fail=message=>{if(current!==revision||!dialog.open)return;worker?.terminate();worker=null;el('result').setAttribute('aria-busy','false');el('status').classList.add('trace-error');el('status').textContent=message;};
@@ -145,10 +150,9 @@ export function installImageTracing({getImage,apply,say}){
   }
   el('preset').addEventListener('input',()=>presetChosen=true);
   el('mode').addEventListener('input',()=>{if(!presetChosen)el('preset').value=el('mode').value==='color'?'balanced':'simple';});
-  for(const name of ['mode','pixel','preset','colors','threshold','noise','invert','white','holes','smoothing','background','outline','stack'])el(name).addEventListener('input',schedule);
-  function defaults(){zoom=1;center={x:.5,y:.5};updateZoom();presetChosen=false;el('pixel').value='32';el('mode').value='mono';el('preset').value='simple';el('colors').value='4';el('threshold').value='128';el('noise').value='12';el('smoothing').value='70';el('invert').checked=false;el('white').checked=true;el('holes').checked=false;el('stack').checked=true;el('background').value='20';el('outline').value='1.5';el('use-silhouette').hidden=true;el('brush-mode').value='view';el('brush-size').value='20';if(refinement)refinement.mask.fill(0);editHistory=[];renderMarks();updateBrush();}
-  el('use-silhouette').onclick=()=>{el('mode').value='silhouette';schedule();};
-  el('reset').onclick=()=>{if(stroke)return;defaults();schedule();};
+  for(const name of ['mode','pixel','pixel-sizing','block','preset','colors','threshold','noise','invert','white','holes','smoothing','background','outline','stack'])el(name).addEventListener('input',schedule);
+  el('use-silhouette').onclick=()=>{el('mode').value='silhouette';preferences.save();schedule();};
+  el('reset').onclick=()=>{if(stroke)return;preferences.reset();presetChosen=false;updateBrush();schedule();};
   for(const name of ['close','cancel'])el(name).onclick=()=>dialog.close();
   dialog.addEventListener('close',()=>{++revision;stop();session=result=refinement=stroke=null;editHistory=[];pan=null;originalCanvas.width=originalCanvas.height=1;el('result').replaceChildren();});
   el('apply').onclick=()=>{
@@ -159,7 +163,7 @@ export function installImageTracing({getImage,apply,say}){
     try{
       session=getImage();if(!session)return;
       originalCanvas.width=session.image.width;originalCanvas.height=session.image.height;refinement=createTraceRefinement(session.image.width,session.image.height);
-      defaults();dialog.showModal();updateZoom();schedule();
+      zoom=1;center={x:.5,y:.5};presetChosen=presetChosen||preferences.hasSaved||el('preset').value!=='simple';editHistory=[];renderMarks();updateBrush();dialog.showModal();updateZoom();schedule();
     }catch(error){session=null;say(error.message||'Could not read this image for tracing.');}
   };
 }
