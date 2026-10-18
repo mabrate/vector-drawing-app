@@ -158,8 +158,43 @@ function contoursForColor(labels,width,height,color,minArea){
   return {contours,removed};
 }
 
+// Average each grid cell before reducing colors; output exact rectangular paths.
+function pixelArt({data,width,height,overrides},settings){
+  const size=[16,24,32,48,64].includes(Number(settings.pixelSize))?Number(settings.pixelSize):32;
+  const scale=Math.min(1,size/Math.max(width,height)),w=Math.max(1,Math.round(width*scale)),h=Math.max(1,Math.round(height*scale));
+  const pixels=new Uint8ClampedArray(w*h*4),marks=new Uint8Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const sum=[0,0,0];let alpha=0,count=0,include=0,exclude=0;
+    for(let yy=Math.floor(y*height/h);yy<Math.floor((y+1)*height/h);yy++)for(let xx=Math.floor(x*width/w);xx<Math.floor((x+1)*width/w);xx++){
+      const i=yy*width+xx,a=data[i*4+3]/255;for(let c=0;c<3;c++)sum[c]+=data[i*4+c]*a;alpha+=a;count++;
+      if(overrides?.[i]===1)include++;if(overrides?.[i]===2)exclude++;
+    }
+    const i=y*w+x;for(let c=0;c<3;c++)pixels[i*4+c]=alpha?Math.round(sum[c]/alpha):0;
+    pixels[i*4+3]=Math.round(alpha/count*255);marks[i]=exclude>count/2?2:include>count/2?1:0;
+  }
+  const count=[2,4,8,12,16].includes(Number(settings.colors))?Number(settings.colors):4;
+  const palette=colorPalette(pixels,w,h,count,settings.ignoreWhite!==false),labels=new Int8Array(w*h).fill(-1);
+  for(let i=0;i<labels.length;i++){
+    const rgb=Array.from(pixels.slice(i*4,i*4+3));
+    if(marks[i]===2||pixels[i*4+3]<128||(marks[i]!==1&&settings.ignoreWhite!==false&&Math.min(...rgb)>=245))continue;
+    let best=Infinity;palette.forEach((color,index)=>{const distance=color.reduce((n,v,c)=>n+(v-rgb[c])**2,0);if(distance<best){best=distance;labels[i]=index;}});
+  }
+  let contourCount=0;
+  const shapes=palette.map((rgb,index)=>{
+    const contours=[];
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(labels[y*w+x]===index){
+      const start=x;while(x+1<w&&labels[y*w+x+1]===index)x++;
+      contours.push([[start,y],[x+1,y],[x+1,y+1],[start,y+1]]);
+    }
+    contourCount+=contours.length;return {fill:'#'+rgb.map(v=>v.toString(16).padStart(2,'0')).join(''),contours};
+  }).filter(shape=>shape.contours.length);
+  return {width:w,height:h,shapes,nodes:contourCount*4,contourCount,selection:Uint8Array.from(labels,v=>Number(v>=0)),tooComplex:false,pixelArt:true,removed:0};
+}
+
 export function traceImage({data,width,height,overrides},settings={}){
   if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>768||height>768||data.length!==width*height*4)throw Error('The trace preview is too large or invalid.');
+  if(overrides&&overrides.length!==width*height)throw Error('Trace corrections do not match the image.');
+  if(settings.mode==='pixel')return pixelArt({data,width,height,overrides},settings);
   const preset=TRACE_PRESETS[settings.preset]||TRACE_PRESETS.simple,mode=['color','silhouette','outline'].includes(settings.mode)?settings.mode:'mono';
   const threshold=Math.max(0,Math.min(255,Number(settings.threshold??128))),invert=!!settings.invert,ignoreWhite=settings.ignoreWhite!==false;
   const colorCount=[2,4,8,12,16].includes(Number(settings.colors))?Number(settings.colors):4;

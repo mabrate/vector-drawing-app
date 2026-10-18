@@ -1,3 +1,4 @@
+import {createPNG} from './png-export.js';
 import {installCornerControls,cornerModel} from './corner-effects.js';
 import {installStrokeControls,resizeStroke} from './stroke-style.js';
 import {installNodeTools} from './node-tools.js';
@@ -373,6 +374,15 @@ catch(error){if(revision===exportRevision&&$('export-dialog').open){$('export-st
 finally{shareBusy=false;updateExportActions();}
 };
 $('export-dialog').addEventListener('close',()=>{++exportRevision;clearPreparedExport();});
+$('export-png').onclick=async()=>{
+const button=$('export-png');if(button.disabled)return;
+finish();button.disabled=true;const {width,height}=pageSize,name=svgFilename(drawingName).replace(/\.svg$/i,'.png');say('Preparing PNG…');
+try{
+const blob=await createPNG(await vectorSVG(),width,height),url=URL.createObjectURL(blob),link=document.createElement('a');
+link.href=url;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+say(`PNG download started · ${Math.max(1,Math.round(width))} × ${Math.max(1,Math.round(height))} pixels · transparent background.`);
+}catch(error){say(error.message||'Could not export this drawing as PNG.');}finally{button.disabled=false;}
+};
 $('open').onclick=()=>$('file').click();$('file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const imported=parseSVG(await file.text());if(!confirm('Replace this drawing with the selected SVG? Save your current SVG first if needed.'))return;setDrawingName(file.name);art.removeChildren();pageSize=imported.page;imported.items.forEach(i=>art.addChild(i));selected=[];path=null;node=null;$('finish').hidden=true;commit();fit();canvas.focus({preventScroll:true});say('SVG opened. Select a shape to edit.');ensureDocumentFonts();}catch(error){say(error.message);}};
 $('new').onclick=()=>{if(art.children.length&&!confirm('Start a new drawing? Save your SVG first if you want to keep this one.'))return;setDrawingName('vector-lab');art.removeChildren();pageSize={...DEFAULT_PAGE};selected=[];path=null;node=null;$('finish').hidden=true;commit();fit();};
 function editingText(e){return e.target.closest('input,textarea,select,[contenteditable="true"]');}
