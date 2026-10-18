@@ -34,7 +34,7 @@ npx playwright install chromium
 npm test
 ```
 
-This is a prototype: rotation supports a draggable handle and a 15-degree button; alignment uses the last-selected object or the artboard. No region-based shape builder, layers panel, text, or offline service worker yet. Import is deliberately limited to vector SVGs and embedded PNG/JPEG/WebP/GIF images and rejects linked/active content. Browser recovery is best-effort localStorage and shared by users of the same browser profile. New SVG drawings are landscape US Letter with a transparent background. Test Safari and touch gestures on actual classroom iPads before relying on it for a lesson.
+This is a prototype: rotation supports a draggable handle and a 15-degree button; alignment uses the last-selected object or the artboard. No region-based shape builder, layers panel, or offline service worker yet. Import is deliberately limited to vector SVGs and embedded PNG/JPEG/WebP/GIF images and rejects linked/active content. Browser recovery is best-effort localStorage and shared by users of the same browser profile. New SVG drawings are landscape US Letter with a transparent background. Test Safari and touch gestures on actual classroom iPads before relying on it for a lesson.
 
 ## Reversible shape building
 
@@ -63,7 +63,8 @@ Keyboard shortcuts work with **Command on Mac/iPad keyboards** or **Control on W
 - A: select all artwork
 - D: duplicate selection
 - C / X / V: copy / cut / paste editable vector artwork through the clipboard (SVG text)
-- Z / Shift+Z: undo / redo; Control/Command+Y also redoes
+- Z / Shift+Z: undo / redo; Control/Command+Y also redoes. While drawing with Pen, undo removes the last added node; after finishing, undo removes the completed path.
+- Escape: deselect all objects and nodes, and cancel an unfinished Pen path. Enter finishes the Pen path.
 - S: save SVG
 - Delete / Backspace: delete selection
 
@@ -250,3 +251,39 @@ In **Nodes**, select a sharp corner between lines or Bézier curves, then choose
 Other anchors and the remaining lines and curves keep their shape. Curved fillets find a circular arc tangent to both sides and split the original Béziers exactly at its contact points. The search stays within the nearer half of each adjoining segment. If a requested curved radius does not fit, the artwork stays unchanged and a message asks for a smaller radius. Straight-line treatments stop at half the shorter adjoining edge to prevent neighbouring treatments from overlapping. Select either generated tangent node to adjust that corner again; **Restore sharp corner** returns to its original geometry. Endpoints and already smooth nodes are excluded. Curved chamfers are not supported.
 
 Corner settings support Undo, local recovery, copy/paste, and SVG save/reopen. SVGs contain ordinary paths plus editing metadata. Moving, rotating, and resizing the object preserve corner settings; changing its individual nodes, handles, or topology turns the path into ordinary editable geometry. Undo restores the settings.
+
+Background removal preview supports **+ / −** keys and buttons, **Ctrl+scroll**, and **pinch** zoom. Drag with two fingers to pan; **Fit preview** resets the view. Brush size stays constant on screen for finer image edits when zoomed in.
+
+## Text formatting and wrapping
+
+The **Formatting** sidebar contains text content, font, size, Bold/Italic/Underline icon buttons, letter and line spacing, and left/center/right alignment icons, followed by fill and outline. Text controls appear when Text is active or one text object is selected. Arimo, Tinos, and Cousine (regular, bold, italic, and bold italic) are bundled locally. The font picker also offers 17 curated downloadable families.
+
+With Text selected, **click** to place ordinary text or **drag** to define a wrapping text box width. Height grows automatically. Edit the original text in the sidebar; explicit paragraph breaks remain intact. Turn on **Wrap in text box** for existing text, set **Box width** in the document units, and choose **Apply text**. Changing that width reflows text; ordinary selection resize handles continue to scale artwork. Alignment buttons, font choices, and Bold apply directly to a selected text object.
+
+Editable SVG saves preserve the source text, wrapping width, and rendered lines through reopen, clipboard, grouping, recovery, and undo. SVG lines use positioned `tspan` elements. Text-to-path export supports all curated families. Other editors may discard the custom wrapping metadata; the visible line layout remains in the SVG. Use outlined export when the receiving application does not have the fonts.
+
+## Curated font picker
+
+**Formatting → Font** opens a searchable picker with each name rendered in its own font. There are exactly **20 choices**, with no full Google Fonts catalog:
+
+- **Included basics:** Arimo (Arial-compatible sans serif), Tinos (serif), Cousine (mono).
+- **Signs and explainers:** Roboto, Atkinson Hyperlegible, Nunito, Oswald, Bebas Neue.
+- **Chunky lettering:** Anton, Bungee, Lilita One, Archivo Black, Baloo 2.
+- **Games:** Press Start 2P, Black Ops One, Orbitron, VT323.
+- **Fun and handwriting:** Fredoka, Chewy, Patrick Hand.
+
+Only the three basics ship as complete fonts. Font-name previews are small local subsets (under 100 KiB combined), loaded only as rows become visible, with at most three simultaneous loads. Choosing one of the 17 extra families downloads the selected regular, bold, italic, or bold-italic style directly from Google Fonts. Downloaded styles are stored in IndexedDB for offline reuse, including after reload; **Available offline** filters by the current bold/italic choice. A different style may still require a first download. Browser storage can be cleared or evicted, so these downloads are not a permanent backup. When storage is unavailable, the picker explains that the font is available only for this session.
+
+New documents use Arimo. Older drawings using the previous Vector Lab font names migrate to Arimo, Tinos, or Cousine. Their letter shapes and metrics may differ. Fonts are loaded only when needed by artwork or a selection. SVG reopening/recovery reloads required fonts from local files or the saved browser font cache; fonts not previously downloaded need a connection. Editable SVGs reference font names and preserve text layout, but do not embed full font files. Outline text during export for appearance that travels between computers.
+
+Redistribution licenses for all name previews and bundled basics are under `public/fonts/licenses`, without duplicate license copies beside each font. Chunky fonts are useful starting points for 3D designs, but disconnected dots, counters, and thin strokes still need checking for the intended fabrication process.
+
+To refresh the curated catalog URLs, the three basics, name previews, and licenses, explicitly run `python3 scripts/update-font-catalog.py` with internet access. This maintenance step needs no API key and does not add the rest of Google Fonts or retain the full files of the 17 downloadable families.
+
+## Text styles, spacing, and selected export
+
+**Bold**, **Italic**, and **Underline** are toggle buttons in Formatting. They apply directly to selected text and set the style for the next text object. Bold is unavailable when a family has no bold weight. Italic uses a real face when the font provides one; otherwise a 12-degree slant works without another download and is preserved by outline export. Underlines also become vector geometry in simple-path exports.
+
+**Letter spacing (pt)** adds space between glyphs; negative values tighten lettering. **Line spacing (×)** multiplies the text size, with 1.2× as the default. Edit those values and choose **Apply text**. Letter spacing participates in word wrapping, and line spacing determines the distance between baselines. All formatting is retained by undo, recovery, copy/paste, and editable SVG save/reopen. Formatted canvas text and outlined SVGs share the same glyph layout so transforms and spacing remain consistent.
+
+In **Save SVG**, enable **Export selected objects only** to save just the current selection, including selected groups. Its SVG page fits the visible geometry and stroke bounds of those objects. Leave it unchecked for the whole drawing at the current artboard size. The option is disabled when nothing is selected and works with either editable SVG or simple-path export, download, and sharing.

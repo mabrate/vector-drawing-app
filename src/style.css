@@ -200,3 +200,24 @@ header nav{overflow:visible}
  main{height:calc(100dvh - 48px)}main>aside:first-child,.properties{top:96px;max-height:calc(100dvh - 96px)}
 }
 @media(max-width:450px){header>div{min-width:0}header b{font-size:14px}header span{display:none}header nav{gap:4px}header nav button{padding:6px;font-size:11px}}
+
+/* Keep zoomed background previews inside a fixed editing viewport. */
+.background-workspace{position:relative;display:block;height:48dvh;min-height:160px;padding:0;overflow:hidden;touch-action:none}
+#background-canvas{position:absolute;max-width:none;max-height:none;object-fit:fill}
+@media(max-width:600px){.background-workspace{height:38dvh;padding:0}#background-canvas{max-height:none}}
+/* Typography shares Formatting with fill and outline, outside the canvas toolbar. */
+.properties #text-settings{display:flex;flex-direction:column;align-items:stretch;padding:0 0 16px;border-top:0;border-bottom:1px solid #d8e0dc;margin-bottom:16px;gap:12px;min-width:0}
+.properties #text-settings h2{margin:0}.properties #text-settings label{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.properties #text-settings .text-content-label{align-items:stretch;flex-direction:column;gap:6px}
+.properties #text-content{width:100%;min-width:0;min-height:100px;box-sizing:border-box;padding:8px;border:1px solid #ccd8d5;border-radius:6px;line-height:1.4}
+.properties #text-font{min-width:0;flex:1;padding:7px;border:1px solid #ccd8d5;border-radius:6px;background:white;color:inherit}
+.text-style-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.text-alignment{display:flex;gap:6px}
+#text-settings .text-alignment button{flex:1;display:flex;align-items:center;justify-content:center;min-height:40px}.text-alignment svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+.text-alignment button[aria-pressed=true]{background:#c9f278;border-color:#83ae35}#text-settings small{font-size:12px;line-height:1.5;color:#617973}
+.properties #text-settings label{justify-content:flex-start}.properties #text-settings .text-style-row label:first-child{align-items:flex-start;flex-direction:column;gap:6px}.properties #text-settings .text-style-row label:last-child{flex-wrap:nowrap}.properties #text-box-width{margin-left:auto}
+#font-picker-button{flex:1;min-width:0;text-align:left;font-size:16px!important;padding:8px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#font-picker{width:560px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:18px}#font-picker h2{margin:0;font-size:20px}.font-picker-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.font-picker-heading button{width:40px;min-height:40px;font-size:22px;padding:0}
+.font-search-label,.font-filter-label{display:flex;gap:8px;align-items:center;margin:12px 0;font-size:13px}.font-search-label{flex-direction:column;align-items:stretch}.font-search-label input,.font-filter-label select{padding:10px;border:1px solid #ccd8d5;border-radius:6px;font:inherit;background:white;color:inherit}.font-filter-label select{flex:1}
+#font-results{height:350px;max-height:44dvh;overflow-y:auto;border:1px solid #ccd8d5;border-radius:8px;overscroll-behavior:contain}.font-choice{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:6px;width:100%;min-height:86px;margin:0;padding:12px;border:0;border-bottom:1px solid #d8e0dc;border-radius:0;text-align:left;background:#fff;color:#203c43}.font-choice[aria-pressed=true]{background:#e4f6c4}.font-sample{font-size:25px;line-height:1.2;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.font-choice small{font:11px/1.4 system-ui,sans-serif;color:#617973}#font-picker-status{min-height:1.4em;font-size:13px}#font-picker[aria-busy=true]{cursor:progress}
+@media(max-width:600px){.font-sample{font-size:20px}.font-choice[data-family="Press Start 2P"] .font-sample{font-size:18px}}
+.text-style-buttons{display:flex;gap:6px}#text-settings .text-style-buttons button{flex:1;min-height:40px;display:flex;align-items:center;justify-content:center}.text-style-buttons svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.text-style-buttons #text-bold svg{stroke-width:3}.text-style-buttons button[aria-pressed=true]{background:#c9f278;border-color:#83ae35}.text-spacing{display:flex;flex-direction:column;gap:10px}.properties #text-settings .text-spacing label{justify-content:space-between;flex-wrap:nowrap}.properties .text-spacing input{width:68px;min-width:0}#export-selection-help{display:block;font-size:12px;color:#617973;margin:0 0 14px}
