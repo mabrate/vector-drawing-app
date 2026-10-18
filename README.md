@@ -23,6 +23,8 @@ Push this project to a GitHub repository with a `main` branch. In **Settings →
 - Pen: tap anchors, drag to create curve handles, tap the first anchor to close. Finish path leaves an open path.
 - Nodes: drag anchors or circular handles. Select anchors and use Corner, Round, or Symmetric.
 - Pinch to zoom; two fingers pan. Pan and Fit buttons also work without gestures.
+- **File → Download editable PNG** saves a normal transparent PNG with editable artwork inside. **Insert image** offers **Editable shapes**, **Regular image**, or **Cancel** when that artwork is readable. Missing, damaged, or newer unsupported editing data falls back to a regular image. Other image tools may strip the editing data.
+- The PNG uses a `VectorLab` tEXt chunk containing JSON with format `vector-lab.editable-png`, version `1`, and a base64 UTF-8 SVG. The reader validates the chunk checksum, size, envelope, and existing SVG import rules before offering editable import.
 - Save SVG downloads editable vector paths. Open SVG replaces the drawing after confirmation.
 - Refresh to test browser-local recovery. Download SVG before leaving a shared device. New clears the recovered drawing but can be undone during the session.
 

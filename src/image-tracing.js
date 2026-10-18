@@ -160,7 +160,7 @@ function contoursForColor(labels,width,height,color,minArea){
 
 // Average each grid cell before reducing colors; output exact rectangular paths.
 function pixelArt({data,width,height,overrides},settings){
-  const size=[16,24,32,48,64].includes(Number(settings.pixelSize))?Number(settings.pixelSize):32;
+  const size=[16,24,32,48,64,128].includes(Number(settings.pixelSize))?Number(settings.pixelSize):32;
   const scale=Math.min(1,size/Math.max(width,height)),w=Math.max(1,Math.round(width*scale)),h=Math.max(1,Math.round(height*scale));
   const pixels=new Uint8ClampedArray(w*h*4),marks=new Uint8Array(w*h);
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
