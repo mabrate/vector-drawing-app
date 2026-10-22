@@ -20,7 +20,7 @@ Push this project to a GitHub repository with a `main` branch. In **Settings →
 - Drag out a rectangle and ellipse. Change their fill/stroke colors.
 - Select an object and drag it. Use Select multiple to select two objects, then align or combine them.
 - Subtract cuts the front object from the back object. Combine requires exactly two closed paths.
-- Pen: tap anchors, drag to create curve handles, tap the first anchor to close. Finish path leaves an open path.
+- Pen: tap anchors, drag to create curve handles, tap the first anchor to close. Finish path leaves an open path. Hold Ctrl/Cmd to snap segments and handles to 15° increments. Alignment guides remain available for targets reachable along the constrained segment.
 - Nodes: drag anchors or circular handles. Select anchors and use Corner, Round, or Symmetric.
 - Pinch to zoom; two fingers pan. Pan and Fit buttons also work without gestures.
 - **File → Download editable PNG** saves a normal transparent PNG with editable artwork inside. **Insert image** offers **Editable shapes**, **Regular image**, or **Cancel** when that artwork is readable. Missing, damaged, or newer unsupported editing data falls back to a regular image. Other image tools may strip the editing data.
@@ -46,7 +46,7 @@ Each combined object exports as **one SVG path**. Holes and disconnected pieces 
 
 ## Editing aids
 
-Fill and stroke open an inline palette with hex entry and hue/saturation/lightness sliders. Pen curves show their handles while drawing. Smooth nodes link opposite handles by default, preserving the opposite handle's length as you rotate the tangent; turn off **Keep smooth handles linked** for independent editing. **Corner**, **Round**, and **Symmetric** convert selected anchors.
+Fill and stroke open an inline palette with hex entry and hue/saturation/lightness sliders. Pen curves show their handles while drawing. A dashed preview follows the pointer from the last anchor, including curves and Ctrl/Cmd angle snapping. Hover over the first anchor to preview closing the path. With the **Pen** tool, hold **Ctrl** (or **Cmd** on Mac) when placing a point to snap the segment from the previous anchor to the nearest 15° angle. Hold the same key while dragging a curve handle to snap its direction to 15° increments. Release the key to draw freely; this works even when general snapping is off. Smooth nodes link opposite handles by default, preserving the opposite handle's length as you rotate the tangent; turn off **Keep smooth handles linked** for independent editing. **Corner**, **Round**, and **Symmetric** convert selected anchors.
 
 **Snap** also makes new rectangles and ellipses square or circular when their width and height are close during dragging. Drag farther from equal proportions to release this snap; turn Snap off for free proportions.
 

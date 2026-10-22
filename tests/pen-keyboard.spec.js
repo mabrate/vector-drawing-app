@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+test.use({launchOptions:{executablePath:'/usr/bin/google-chrome'}});
 async function points(page,count){const r=await page.locator('#canvas').boundingBox();for(let i=0;i<count;i++)await page.mouse.click(r.x+120+i*90,r.y+150+(i%2)*80);}
 async function drawing(page){return page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children||[]);}
 test('pen undo removes one node at a time and allows drawing to continue',async({page})=>{
@@ -16,4 +17,48 @@ test('Escape cancels pen drawing and clears object and node selection',async({pa
  expect(await drawing(page)).toHaveLength(0);await expect(page.locator('#finish')).toBeHidden();await expect(page.locator('#delete')).toBeDisabled();
  await points(page,3);await page.keyboard.press('Enter');await page.keyboard.press('Escape');expect(await drawing(page)).toHaveLength(1);await expect(page.locator('#delete')).toBeDisabled();
  await page.keyboard.press('n');await page.keyboard.press('Control+a');await expect(page.locator('#node-count')).toContainText('3 nodes');await page.keyboard.press('Escape');await expect(page.locator('#node-count')).toHaveText('0 nodes selected');await expect(page.locator('#delete')).toBeDisabled();
+});
+for(const modifier of ['Control','Meta'])test(`${modifier} snaps pen segments and curve handles to 15 degrees`,async({page})=>{
+ await page.goto('/');await page.locator('[data-tool=pen]').click();
+ await page.locator('#snapping').evaluate(el=>{el.checked=false;});
+ const r=await page.locator('#canvas').boundingBox();
+ const read=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1].segments);
+ const xy=s=>typeof s[0]==='number'?s:s[0];
+ const angle=v=>Math.atan2(v[1],v[0])*180/Math.PI;
+ await page.mouse.click(r.x+120,r.y+150);
+ await page.keyboard.down(modifier);await page.mouse.click(r.x+240,r.y+200);await page.keyboard.up(modifier);
+ await page.mouse.move(r.x+360,r.y+250);await page.mouse.down();await page.mouse.move(r.x+440,r.y+280);
+ await page.keyboard.down(modifier);await page.mouse.up();await page.keyboard.up(modifier);await page.keyboard.press('Enter');
+ const segments=await read(),a=xy(segments[0]),b=xy(segments[1]),c=xy(segments[2]);
+ expect(angle([b[0]-a[0],b[1]-a[1]])).toBeCloseTo(30,5);
+ expect(angle(segments[2][2])).toBeCloseTo(15,5);
+ expect(angle([c[0]-b[0],c[1]-b[1]])/15).not.toBeCloseTo(Math.round(angle([c[0]-b[0],c[1]-b[1]])/15),2);
+ expect(Math.hypot(...segments[2][2])).toBeCloseTo(Math.hypot(80,30)*Math.hypot(b[0]-a[0],b[1]-a[1])/130,4);
+});
+test('pen preview follows the pointer, snaps live and stays out of saved artwork',async({page})=>{
+ await page.goto('/');await page.locator('[data-tool=pen]').click();
+ await page.locator('#snapping').evaluate(el=>{el.checked=false;});
+ const r=await page.locator('#canvas').boundingBox();
+ const preview=()=>page.evaluate(async()=>{const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);const p=paper.project.getItem({name:'pen-preview'});return p?{points:p.segments.map(s=>[s.point.x,s.point.y]),handles:p.segments.map(s=>[s.handleIn.length,s.handleOut.length])}:null;});
+ const angle=p=>Math.atan2(p.points[1][1]-p.points[0][1],p.points[1][0]-p.points[0][0])*180/Math.PI;
+ await page.mouse.click(r.x+120,r.y+150);await page.mouse.move(r.x+240,r.y+200);
+ expect(angle(await preview())).toBeCloseTo(Math.atan2(50,120)*180/Math.PI,4);
+ await page.keyboard.down('Control');expect(angle(await preview())).toBeCloseTo(30,4);
+ await page.keyboard.up('Control');expect(angle(await preview())).toBeCloseTo(Math.atan2(50,120)*180/Math.PI,4);
+ await page.mouse.down();await page.mouse.move(r.x+280,r.y+220);expect(await preview()).toBeNull();await page.mouse.up();
+ await page.mouse.move(r.x+360,r.y+280);expect((await preview()).handles[0][1]).toBeGreaterThan(0);
+ await page.mouse.move(0,0);expect(await preview()).toBeNull();
+ await page.mouse.move(r.x+360,r.y+280);expect(await preview()).not.toBeNull();
+ await page.keyboard.press('Enter');expect(await preview()).toBeNull();
+ const items=await drawing(page);expect(items).toHaveLength(1);expect(items[0][1].segments).toHaveLength(2);expect(JSON.stringify(items)).not.toContain('pen-preview');
+});
+test('Ctrl pen angle snapping retains compatible node alignment guides',async({page})=>{
+ await page.goto('/');await page.locator('[data-tool=pen]').click();
+ const r=await page.locator('#canvas').boundingBox();
+ await page.mouse.click(r.x+120,r.y+150);await page.mouse.move(r.x+240,r.y+153);
+ const state=()=>page.evaluate(async()=>{const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);const preview=paper.project.getItem({name:'pen-preview'});return {points:preview.segments.map(s=>[s.point.x,s.point.y]),guides:paper.project.activeLayer.project.layers.at(-1).children.filter(p=>p.strokeColor?.toCSS(true)==='#dd658c').length};});
+ const before=await state();expect(before.guides).toBeGreaterThan(0);
+ await page.keyboard.down('Control');const after=await state();expect(after.guides).toBeGreaterThan(0);expect(after.points[1][1]).toBeCloseTo(after.points[0][1],6);
+ await page.mouse.click(r.x+240,r.y+153);await page.keyboard.up('Control');await page.keyboard.press('Enter');
+ const segments=(await drawing(page))[0][1].segments;expect(segments[1][1]).toBeCloseTo(segments[0][1],6);
 });

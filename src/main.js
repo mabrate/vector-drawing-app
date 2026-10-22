@@ -40,7 +40,7 @@ const art=new paper.Layer(), overlay=new paper.Layer();
 let tool='select',selected=[],path=null,drag=null,node=null,history=[],future=[],pointers=new Map(),gesture=null,guides=[],lastNodeTap=null,lastTouchToggle=-Infinity,styleSelection=null,selectedNodes=[],activePanel="style",viewFitted=true;
 function openPanel(name){if(!['style','align'].includes(name))name='style';activePanel=name;for(const key of ['style','align'])$(`panel-${key}`).hidden=key!==name;document.querySelectorAll('[data-panel],[data-open-panel]').forEach(b=>{b.classList.toggle('active',(b.dataset.panel||b.dataset.openPanel)===name);b.setAttribute('aria-pressed',String((b.dataset.panel||b.dataset.openPanel)===name));});document.querySelector('.properties').scrollTop=0;}
 document.querySelectorAll('[data-panel],[data-open-panel]').forEach(b=>b.onclick=()=>openPanel(b.dataset.panel||b.dataset.openPanel));
-const hints={blob:'Draw a filled path. Connected closed paths merge into the brush color. Choose a brush size in Formatting.',bucket:'Click an enclosed vector area to create a new path in the current fill color. Close any gaps first.',text:'Click to place text; drag to set a wrapping box width. Edit text in Formatting.',select:'Drag empty space to select. Drag shapes to move; handles resize; round handle rotates.',nodes:'Drag anchors or handles. Ctrl/Cmd snaps handles to 15°. Double-click an anchor for smooth / corner.',pen:'Tap for corners. Drag for curves. Tap the first point to close.',rectangle:'Drag to draw a rectangle.',ellipse:'Drag to draw an ellipse.',dropper:'Click for a color; drag from center to edge to average a circle. Applies to selected shapes or the next shape.',crop:'Select an image, then drag a rectangle from inside or outside it to keep that area. Reset crop restores the original.',pan:'Drag to move the view.'};
+const hints={blob:'Draw a filled path. Connected closed paths merge into the brush color. Choose a brush size in Formatting.',bucket:'Click an enclosed vector area to create a new path in the current fill color. Close any gaps first.',text:'Click to place text; drag to set a wrapping box width. Edit text in Formatting.',select:'Drag empty space to select. Drag shapes to move; handles resize; round handle rotates.',nodes:'Drag anchors or handles. Ctrl/Cmd snaps handles to 15°. Double-click an anchor for smooth / corner.',pen:'Tap for corners. Drag for curves. Hold Ctrl/Cmd to snap segments and handles to 15°. Tap the first point to close.',rectangle:'Drag to draw a rectangle.',ellipse:'Drag to draw an ellipse.',dropper:'Click for a color; drag from center to edge to average a circle. Applies to selected shapes or the next shape.',crop:'Select an image, then drag a rectangle from inside or outside it to keep that area. Reset crop restores the original.',pan:'Drag to move the view.'};
 // Action feedback takes priority; resume quiet usage tips after time to read it.
 const usageTips=[
 ()=> 'Save SVG to keep an editable copy, especially before leaving a shared device.',
@@ -83,6 +83,15 @@ new paper.Path.Rectangle({rectangle:new paper.Rectangle(0,0,pageSize.width,pageS
 for(const item of selected.filter(i=>i.isInserted())){
 if((tool==='nodes'||tool==='pen')&&editablePaths(item).length){for(const s of editablePaths(item).flatMap(p=>p.segments)){const anchor=nodePosition(s);for(const key of ['handleIn','handleOut']){if(s[key].length){const p=nodePosition(s,key);new paper.Path.Line({from:anchor,to:p,strokeColor:'#d37525',strokeWidth:1/z});new paper.Path.Circle({center:p,radius:4/z,fillColor:'#fff',strokeColor:'#d37525',strokeWidth:1.5/z});}}new paper.Path.Rectangle({point:anchor.subtract(selectedNodes.includes(s)?[6/z,6/z]:[4/z,4/z]),size:selectedNodes.includes(s)?[12/z,12/z]:[8/z,8/z],fillColor:selectedNodes.includes(s)?'#ed286e':'white',strokeColor:selectedNodes.includes(s)?'#671133':'#267d81',strokeWidth:(selectedNodes.includes(s)?3:1.5)/z});}}
 else new paper.Path.Rectangle({rectangle:item.bounds.expand(6/z),strokeColor:selected.length>1&&item===selected.at(-1)?'#83ae35':'#267d81',strokeWidth:(selected.length>1&&item===selected.at(-1)?3:1.5)/z,dashArray:[5/z,3/z]});}
+if(tool==='pen'&&path?.lastSegment&&!drag&&!gesture){
+const cursor=cursorViewPoint();
+if(cursor){const p=paper.view.viewToProject(cursor),closing=penClosing(p),last=path.lastSegment;
+const end=closing?path.firstSegment.point:penPoint(p,last.point,penModifiers);
+const preview=new paper.Path({segments:[new paper.Segment(last.point,null,last.handleOut),new paper.Segment(end,closing?path.firstSegment.handleIn:null)],strokeColor:'#267d81',strokeWidth:1.5/z,dashArray:[6/z,4/z],fillColor:null});
+preview.name='pen-preview';
+if(closing)new paper.Path.Circle({center:end,radius:9/z,strokeColor:'#267d81',strokeWidth:2/z,fillColor:null});
+}
+}
 if(drag?.textBox)new paper.Path.Rectangle({rectangle:new paper.Rectangle(drag.start,drag.end),strokeColor:'#267d81',strokeWidth:1/z,dashArray:[5/z,3/z]});
 if(tool==='nodes')for(const item of selected)for(const path of editablePaths(item)){
  const model=cornerModel(path);if(!model)continue;
@@ -211,14 +220,14 @@ const canvas=$('canvas');
 var strokeControls=installStrokeControls({getSelection:()=>selected.filter(i=>!imageParts(i)),getWidth:()=>Math.max(0,Math.min(100000,(Number($('width').value)||0)*units[$('units').value])),commit});
 var nodeTools=installNodeTools({paper,art,canvas,getTool:()=>tool,getSelection:()=>selected,getNodes:()=>selectedNodes,setSelection:(items,nodes)=>{selected=items;selectedNodes=nodes;node=null;},commit,say,nodePosition,detach:detachNodeBuild});
 var cornerControls=installCornerControls({paper,getTool:()=>tool,getUnit:()=>$('units').value,getUnitScale:()=>units[$('units').value],getNodes:()=>selectedNodes,getSelection:()=>selected,setSelection:(items,nodes)=>{selected=items;selectedNodes=nodes;node=null;},commit,refresh,say});
-let cursorPosition=null;
-function trackCursor(e){cursorPosition=e.pointerType==='touch'?null:{x:e.clientX,y:e.clientY};}
+let cursorPosition=null,penModifiers={ctrlKey:false,metaKey:false};
+function trackCursor(e){cursorPosition=e.pointerType==='touch'?null:{x:e.clientX,y:e.clientY};penModifiers={ctrlKey:e.ctrlKey,metaKey:e.metaKey};}
 canvas.addEventListener('pointermove',trackCursor);
-canvas.addEventListener('pointerenter',trackCursor);
-canvas.addEventListener('pointerleave',()=>cursorPosition=null);
+canvas.addEventListener('pointerenter',e=>{trackCursor(e);if(tool==='pen'&&path)refresh();});
+canvas.addEventListener('pointerleave',()=>{cursorPosition=null;if(tool==='pen'&&path)refresh();});
 canvas.addEventListener('pointercancel',()=>cursorPosition=null);
 document.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'||e.target!==canvas)cursorPosition=null;else trackCursor(e);});
-window.addEventListener('blur',()=>cursorPosition=null);
+window.addEventListener('blur',()=>{cursorPosition=null;penModifiers={ctrlKey:false,metaKey:false};if(tool==='pen'&&path)refresh();});
 function cursorViewPoint(){
 if(!cursorPosition)return null;
 const r=canvas.getBoundingClientRect(),x=cursorPosition.x-r.left,y=cursorPosition.y-r.top;
@@ -250,6 +259,33 @@ if(e.ctrlKey){const anchor=point(e);paper.view.zoom=Math.max(.15,Math.min(8,pape
 else paper.view.center=paper.view.center.add(new paper.Point((e.shiftKey?(e.deltaX||e.deltaY):e.deltaX)*unit,(e.shiftKey?0:e.deltaY)*unit).divide(paper.view.zoom));
 refresh();
 },{passive:false});
+function penClosing(p){return path&&path.segments.length>2&&p.getDistance(path.firstSegment.point)<16/paper.view.zoom;}
+function penPoint(p,origin,modifiers){
+if(!origin||!(modifiers.ctrlKey||modifiers.metaKey))return snapPosition(p);
+const delta=p.subtract(origin);delta.angle=Math.round(delta.angle/15)*15;
+const constrained=origin.add(delta);
+// Intersect nearby alignment targets with the angle-constrained ray, so
+// positional snapping never bends the requested 15-degree direction.
+snapPosition(constrained);
+let result=constrained,best=8/paper.view.zoom;
+for(const guide of guides){const axis=guide.from[0]===guide.to[0]?'x':'y',index=axis==='x'?0:1;
+if(Math.abs(delta[axis])<1e-8)continue;
+const scale=(guide.from[index]-origin[axis])/delta[axis];
+if(scale<0)continue;
+const candidate=origin.add(delta.multiply(scale)),distance=candidate.getDistance(constrained);
+if(distance<best){best=distance;result=candidate;}
+}
+guides=guides.filter(guide=>Math.abs(result[guide.from[0]===guide.to[0]?'x':'y']-guide.from[guide.from[0]===guide.to[0]?0:1])<1e-6);
+return result;
+}
+function updatePenHandle(p,modifiers){
+drag.lastPoint=p;const delta=p.subtract(drag.start);
+if(modifiers.ctrlKey||modifiers.metaKey)delta.angle=Math.round(delta.angle/15)*15;
+drag.segment.handleOut=delta;drag.segment.handleIn=delta.negate();if(delta.length)setNodeMode(drag.segment,'round');
+}
+for(const type of ['keydown','keyup'])window.addEventListener(type,e=>{
+if(['Control','Meta'].includes(e.key)){penModifiers={ctrlKey:e.ctrlKey,metaKey:e.metaKey};if(drag?.segment&&!gesture)updatePenHandle(drag.lastPoint||drag.start,e);if(tool==='pen'&&path)refresh();}
+});
 canvas.addEventListener('pointerdown',e=>{hideHandleSize();e.preventDefault();canvas.focus({preventScroll:true});canvas.setPointerCapture(e.pointerId);pointers.set(e.pointerId,new paper.Point(e.offsetX,e.offsetY));if(pointers.size===2){cancelDrawingForGesture();const a=[...pointers.values()],mid=a[0].add(a[1]).divide(2);gesture={distance:a[0].getDistance(a[1]),anchor:paper.view.viewToProject(mid),zoom:paper.view.zoom};refresh();return;}if(pointers.size>1||gesture)return;const p=point(e);
 if(e.button===1){viewFitted=false;drag={middlePan:true,last:p,pointerId:e.pointerId};canvas.classList.add('middle-panning');return;}
 if(tool==='blob'){const diameter=$('blob-size').valueAsNumber;if(!Number.isFinite(diameter)||diameter<1||diameter>500){say('Choose a brush size from 1 to 500 px.');return;}selected=[];drag={blob:true,start:p,points:[p],diameter,smoothing:$('blob-smoothing').valueAsNumber,color:pickerColor('fill')};refresh();return;}
@@ -258,11 +294,11 @@ if(tool==='text'){const h=hit(p);if(h?.item instanceof paper.PointText){selected
 if(tool==='pan'){viewFitted=false;drag={last:p};return;}
 if(tool==='dropper'){overlay.visible=false;paper.view.update();try{const pixels=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height);drag={dropper:true,start:p,radius:0,pixels,target:$('dropper-target').value};}catch{say('Could not sample this image. Try inserting a local image file.');}finally{overlay.visible=true;}refresh();return;}
 if(tool==='crop'){let item=selected.length===1&&imageParts(selected[0])?selected[0]:null;if(!item){const h=hit(p);if(h&&imageParts(h.item)){item=h.item;selected=[item];}}if(!item){say('Select an image to crop.');refresh();return;}const parts=imageParts(item),b=parts.raster.bounds.clone(),local=item.globalToLocal(p);local.x=Math.max(b.left,Math.min(b.right,local.x));local.y=Math.max(b.top,Math.min(b.bottom,local.y));drag={crop:true,item,start:p,localStart:local,box:new paper.Rectangle(local,local),imageBounds:b};refresh();return;}
-if(tool==='pen'){if(path&&path.segments.length>2&&p.getDistance(path.firstSegment.point)<16/paper.view.zoom){path.closed=true;finish();return;}if(!path){art.activate();path=new paper.Path(style());selected=[path];$('finish').hidden=false;}const start=snapPosition(p);const s=path.add(start);drag={segment:s,start};refresh();return;}
+if(tool==='pen'){if(penClosing(p)){path.closed=true;finish();return;}if(!path){art.activate();path=new paper.Path(style());selected=[path];$('finish').hidden=false;}const start=penPoint(p,path.lastSegment?.point,e);const s=path.add(start);drag={segment:s,start};refresh();return;}
 if(tool==='nodes'){const multi=e.shiftKey||$('multi-nodes').checked;node=nodeHit(p);if(!node){const h=nodePathHit(p);if(h){const item=h.item.parent instanceof paper.CompoundPath?h.item.parent:h.item;selected=multi?[...new Set([...selected,item])]:[item];node=nodeHit(p);}if(!node){drag={nodeMarquee:true,clickedPath:!!h,start:p,end:p,previousNodes:multi?[...selectedNodes]:[]};if(!multi)selectedNodes=[];refresh();return;}}if(node){const removeOnTap=multi&&node.key==='point'&&selectedNodes.includes(node.segment);if(node.key==='point'){if(multi&&!selectedNodes.includes(node.segment))selectedNodes=[...selectedNodes,node.segment];else if(!selectedNodes.includes(node.segment))selectedNodes=[node.segment];}else if(!selectedNodes.includes(node.segment))selectedNodes=[node.segment];drag={node,removeOnTap,start:p,originalSegment:node.segment.clone(),nodeOriginals:selectedNodes.map(segment=>({segment,point:segment.point.clone()})),linked:$('linked').checked&&nodeMode(node.segment)!=='corner',symmetric:nodeMode(node.segment)==='symmetric'};}refresh();return;}
 if(tool==='select'){if(selected.length&&rotationHandle(selectionBounds()).getDistance(p)<12/paper.view.zoom){beginRotation(p,e);refresh();return;}const handle=resizeHit(p);if(handle){beginResize(handle,p);refresh();return;}const h=hit(p);if(h){const removeItemOnTap=($('multi').checked||e.shiftKey)&&selected.includes(h.item)?h.item:null;if($('multi').checked||e.shiftKey){if(!selected.includes(h.item))selected=[...selected,h.item];}else if(!selected.includes(h.item))selected=[h.item];drag={start:p,removeItemOnTap,selectionMoved:false,positions:selected.map(i=>i.position.clone()),bounds:selectionBounds()};}else{const previous=($('multi').checked||e.shiftKey)?[...selected]:[];selected=previous;drag={marquee:true,start:p,end:p,previous};}refresh();return;}
 art.activate();const created=new paper.Path({...style()});selected=[created];drag={start:snapPosition(p),created};refresh();});
-canvas.addEventListener('pointermove',e=>{if(!pointers.has(e.pointerId))return;pointers.set(e.pointerId,new paper.Point(e.offsetX,e.offsetY));if(gesture&&pointers.size===2){viewFitted=false;const a=[...pointers.values()],mid=a[0].add(a[1]).divide(2);const anchor=gesture.anchor;paper.view.zoom=Math.max(.15,Math.min(8,gesture.zoom*a[0].getDistance(a[1])/Math.max(1,gesture.distance)));paper.view.center=paper.view.center.add(anchor.subtract(paper.view.viewToProject(mid)));refresh();return;}if(!drag)return;const p=point(e);
+canvas.addEventListener('pointermove',e=>{if(!pointers.has(e.pointerId)){if(tool==='pen'&&path)refresh();return;}pointers.set(e.pointerId,new paper.Point(e.offsetX,e.offsetY));if(gesture&&pointers.size===2){viewFitted=false;const a=[...pointers.values()],mid=a[0].add(a[1]).divide(2);const anchor=gesture.anchor;paper.view.zoom=Math.max(.15,Math.min(8,gesture.zoom*a[0].getDistance(a[1])/Math.max(1,gesture.distance)));paper.view.center=paper.view.center.add(anchor.subtract(paper.view.viewToProject(mid)));refresh();return;}if(!drag)return;const p=point(e);
 if(drag.textBox){drag.end=p;}
 else if(drag.blob){if(p.getDistance(drag.points.at(-1))>=Math.max(.5,drag.diameter/8))drag.points.push(p);}
 else if(drag.dropper){drag.radius=p.getDistance(drag.start);}
@@ -273,7 +309,7 @@ else if(drag.rotating)updateRotation(p,e);
 else if(drag.resize)updateResize(p,e);
 else if(drag.middlePan||tool==='pan'){paper.view.center=paper.view.center.subtract(p.subtract(drag.last));}
 else if(drag.created){const rect=drawingRectangle(p,e);say(`${drag.equalDimensions?(tool==='ellipse'?'Circle':'Square')+' · ':''}${formatLength(rect.width)} × ${formatLength(rect.height)} ${$('units').value}`);const temp=tool==='ellipse'?new paper.Path.Ellipse(rect):new paper.Path.Rectangle(rect);drag.created.segments=temp.segments.map(s=>s.clone());drag.created.closed=true;temp.remove();}
-else if(drag.segment){const delta=p.subtract(drag.start);drag.segment.handleOut=delta;drag.segment.handleIn=delta.negate();if(delta.length)setNodeMode(drag.segment,'round');}
+else if(drag.segment)updatePenHandle(p,e);
 else if(drag.node){const {segment,key}=drag.node;if(key==='point'){const delta=snapPosition(p).subtract(drag.start);for(const o of drag.nodeOriginals)o.segment.point=o.point.add(pathVector(o.segment.path,delta));}else{const opposite=key==='handleIn'?'handleOut':'handleIn',length=segment[opposite].length;let handle=p.subtract(nodePosition(segment));if(e.ctrlKey||e.metaKey)handle.angle=Math.round(handle.angle/15)*15;segment[key]=pathVector(segment.path,handle);if(drag.linked&&segment[key].length)segment[opposite]=drag.symmetric?segment[key].negate():segment[key].normalize(-length);} }
 else if(tool==='select'&&selected.length&&drag.bounds){const raw=p.subtract(drag.start);if(!drag.selectionMoved&&raw.length<3/paper.view.zoom)return;drag.selectionMoved=true;const bounds=drag.bounds.clone();bounds.point=bounds.point.add(raw);const snapped=snapPosition(p,bounds),delta=snapped.subtract(drag.start);selected.forEach((i,index)=>i.position=drag.positions[index].add(delta));spacingFeedback(selectionBounds());}
 refresh();});
