@@ -39,7 +39,7 @@ test('pen preview follows the pointer, snaps live and stays out of saved artwork
  await page.goto('/');await page.locator('[data-tool=pen]').click();
  await page.locator('#snapping').evaluate(el=>{el.checked=false;});
  const r=await page.locator('#canvas').boundingBox();
- const preview=()=>page.evaluate(async()=>{const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);const p=paper.project.getItem({name:'pen-preview'});return p?{points:p.segments.map(s=>[s.point.x,s.point.y]),handles:p.segments.map(s=>[s.handleIn.length,s.handleOut.length])}:null;});
+ const preview=()=>page.evaluate(async()=>{await new Promise(requestAnimationFrame);const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);const p=paper.project.getItem({name:'pen-preview'});return p?{points:p.segments.map(s=>[s.point.x,s.point.y]),handles:p.segments.map(s=>[s.handleIn.length,s.handleOut.length])}:null;});
  const angle=p=>Math.atan2(p.points[1][1]-p.points[0][1],p.points[1][0]-p.points[0][0])*180/Math.PI;
  await page.mouse.click(r.x+120,r.y+150);await page.mouse.move(r.x+240,r.y+200);
  expect(angle(await preview())).toBeCloseTo(Math.atan2(50,120)*180/Math.PI,4);
@@ -56,9 +56,31 @@ test('Ctrl pen angle snapping retains compatible node alignment guides',async({p
  await page.goto('/');await page.locator('[data-tool=pen]').click();
  const r=await page.locator('#canvas').boundingBox();
  await page.mouse.click(r.x+120,r.y+150);await page.mouse.move(r.x+240,r.y+153);
- const state=()=>page.evaluate(async()=>{const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);const preview=paper.project.getItem({name:'pen-preview'});return {points:preview.segments.map(s=>[s.point.x,s.point.y]),guides:paper.project.activeLayer.project.layers.at(-1).children.filter(p=>p.strokeColor?.toCSS(true)==='#dd658c').length};});
+ const state=()=>page.evaluate(async()=>{await new Promise(requestAnimationFrame);const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);const preview=paper.project.getItem({name:'pen-preview'});return {points:preview.segments.map(s=>[s.point.x,s.point.y]),guides:paper.project.activeLayer.project.layers.at(-1).children.filter(p=>p.strokeColor?.toCSS(true)==='#dd658c').length};});
  const before=await state();expect(before.guides).toBeGreaterThan(0);
  await page.keyboard.down('Control');const after=await state();expect(after.guides).toBeGreaterThan(0);expect(after.points[1][1]).toBeCloseTo(after.points[0][1],6);
  await page.mouse.click(r.x+240,r.y+153);await page.keyboard.up('Control');await page.keyboard.press('Enter');
  const segments=(await drawing(page))[0][1].segments;expect(segments[1][1]).toBeCloseTo(segments[0][1],6);
+});
+test('pen hover batches pointer events without rebuilding selection controls',async({page})=>{
+ await page.goto('/');await page.locator('[data-tool=pen]').click();
+ const r=await page.locator('#canvas').boundingBox();await page.mouse.click(r.x+120,r.y+150);
+ const result=await page.evaluate(async()=>{
+  await new Promise(requestAnimationFrame);
+  const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);
+  const layer=paper.project.layers.find(l=>l.name==='pen-overlay'),selection=paper.project.layers[2],children=[...selection.children];
+  let renders=0;const remove=layer.removeChildren;layer.removeChildren=function(...args){renders++;return remove.apply(this,args);};
+  const canvas=document.querySelector('#canvas'),r=canvas.getBoundingClientRect();
+  for(let i=0;i<30;i++)canvas.dispatchEvent(new PointerEvent('pointermove',{pointerId:999,pointerType:'mouse',clientX:r.x+180+i,clientY:r.y+220,bubbles:true}));
+  const immediate=renders;await new Promise(requestAnimationFrame);
+  const preview=paper.project.getItem({name:'pen-preview'}),end=paper.view.projectToView(preview.lastSegment.point);
+  const stable=children.every((item,index)=>selection.children[index]===item);
+  layer.removeChildren=remove;
+  // Finishing before a queued frame must not resurrect the preview.
+  canvas.dispatchEvent(new PointerEvent('pointermove',{pointerId:999,pointerType:'mouse',clientX:r.x+300,clientY:r.y+250,bubbles:true}));
+  canvas.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+  await new Promise(requestAnimationFrame);
+  return {immediate,renders,stable,end:[end.x,end.y],previewAfterFinish:!!paper.project.getItem({name:'pen-preview'})};
+ });
+ expect(result.immediate).toBe(0);expect(result.renders).toBe(1);expect(result.stable).toBe(true);expect(result.end[0]).toBeCloseTo(209,4);expect(result.previewAfterFinish).toBe(false);
 });

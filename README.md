@@ -46,7 +46,7 @@ Each combined object exports as **one SVG path**. Holes and disconnected pieces 
 
 ## Editing aids
 
-Fill and stroke open an inline palette with hex entry and hue/saturation/lightness sliders. Pen curves show their handles while drawing. A dashed preview follows the pointer from the last anchor, including curves and Ctrl/Cmd angle snapping. Hover over the first anchor to preview closing the path. With the **Pen** tool, hold **Ctrl** (or **Cmd** on Mac) when placing a point to snap the segment from the previous anchor to the nearest 15° angle. Hold the same key while dragging a curve handle to snap its direction to 15° increments. Release the key to draw freely; this works even when general snapping is off. Smooth nodes link opposite handles by default, preserving the opposite handle's length as you rotate the tangent; turn off **Keep smooth handles linked** for independent editing. **Corner**, **Round**, and **Symmetric** convert selected anchors.
+Fill and stroke open an inline palette with hex entry and hue/saturation/lightness sliders. Pen curves show their handles while drawing. A dashed preview follows the pointer from the last anchor, including curves and Ctrl/Cmd angle snapping. Preview movement updates at most once per animation frame without rebuilding selection controls. Hover over the first anchor to preview closing the path. With the **Pen** tool, hold **Ctrl** (or **Cmd** on Mac) when placing a point to snap the segment from the previous anchor to the nearest 15° angle. Hold the same key while dragging a curve handle to snap its direction to 15° increments. Release the key to draw freely; this works even when general snapping is off. Smooth nodes link opposite handles by default, preserving the opposite handle's length as you rotate the tangent; turn off **Keep smooth handles linked** for independent editing. **Corner**, **Round**, and **Symmetric** convert selected anchors.
 
 **Snap** also makes new rectangles and ellipses square or circular when their width and height are close during dragging. Drag farther from equal proportions to release this snap; turn Snap off for free proportions.
 
@@ -135,6 +135,9 @@ Double-click/double-tap cycles through these corner stages and back to round. No
 Use **Insert image** for PNG, JPEG, WebP, or GIF files, or paste an image from the clipboard while the canvas has focus. Images are embedded in saved SVGs; no upload or external image URL is required. Animated images use a still frame.
 
 Select one image and choose **Crop** (left toolbar or Dimensions). Drag a rectangle over the image to keep that area; release to apply. Dragging works in either direction and follows rotated images. **Reset crop** restores the complete image. Exact edge percentages remain available under **Crop menu**. Cropping is nondestructive: original pixels remain embedded, including cropped areas. Cropping, image placement, copying, and sizing support undo and browser recovery. Files are limited to 15 MB each; SVG imports to 30 MB. Large images can exceed browser-local recovery storage, so keep SVG copies.
+
+To crop an image to a shape, draw a closed shape (such as a circle or a closed Pen path) over an image. Use **Select multiple** to select both the image and shape, then choose **Intersect** in the shape-builder tools. Only the overlapping image area remains visible; the shape is consumed. The original pixels remain embedded, and Undo restores both objects. Shape cropping survives browser recovery and SVG save/open. Exact percentage crops and Reset crop retain the shape restriction. If the shape does not overlap the visible image, both originals are kept.
+
 
 Click empty artboard or background space to clear the selection, including with multiple selection enabled. Dragging empty space still box-selects objects or nodes.
 
@@ -299,3 +302,9 @@ To refresh the curated catalog URLs, the three basics, name previews, and licens
 In **Save SVG**, enable **Export selected objects only** to save just the current selection, including selected groups. Its SVG page fits the visible geometry and stroke bounds of those objects. Leave it unchecked for the whole drawing at the current artboard size. The option is disabled when nothing is selected and works with either editable SVG or simple-path export, download, and sharing.
 
 Choose **File → Export PNG** to download the full page as a PNG with a transparent background. Page dimensions in pixels determine the image size (rounded to whole pixels). Artwork outside the page is clipped; editor controls and selection handles are excluded. Text is rendered with the drawing’s fonts. The PNG uses the current drawing name.
+
+### Offset paths
+
+Select one or more closed vector paths and choose **Offset path** in the toolbar. Enter a distance in the current page units: positive expands outward, negative insets. Choose Round, Miter (limited sharp corners), or Square corners, then inspect the dashed preview and choose **Apply offset** or **Cancel**. **Keep original paths** adds the offset copies alongside the originals; otherwise they replace the selected paths. Holes shrink when the surrounding shape expands and grow when it insets. An inset that removes an entire selected path is rejected without changing artwork.
+
+Offsets produce ordinary editable closed paths, with curves approximated by short straight segments. Original fill and outline styles are retained; reversible corner and boolean construction metadata is replaced by the new geometry. Undo, browser recovery, and SVG save/open preserve the result. Open paths, groups, text, and images must be converted to closed paths or ungrouped first where appropriate. Offset distance describes the path boundary, independent of outline thickness.
