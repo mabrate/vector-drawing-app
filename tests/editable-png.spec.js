@@ -8,7 +8,7 @@ test('editable PNG download reimports as shapes or pixels, with cancel and undo'
  await page.locator('#file').setInputFiles({name:'shapes.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><path d="M10 10H60V60H10Z" fill="red"/><text x="10" y="75" font-family="Arimo">Café</text></svg>')});
  await expect(page.locator('#status')).toContainText('SVG opened');
  const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
- await page.locator('#file-menu-button').click();const download=page.waitForEvent('download');await page.locator('#export-editable-png').click();const file=await download;
+ await page.locator('#file-menu-button').click();const download=page.waitForEvent('download');await page.locator('#export-editable-png').click();await page.locator('#download-png').click();const file=await download;
  const bytes=Buffer.concat(await(await file.createReadStream()).toArray());expect(file.suggestedFilename()).toBe('shapes.png');
  const input={name:'shapes.png',mimeType:'image/png',buffer:bytes};
  await page.locator('#image-file').setInputFiles(input);await expect(page.locator('#png-import-dialog')).toBeVisible();await page.getByRole('button',{name:'Cancel',exact:true}).click();

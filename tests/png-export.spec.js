@@ -9,7 +9,7 @@ test('File exports a named page-sized PNG with transparency, images, text and no
     await page.locator('#file').setInputFiles({name:'my-art.svg',mimeType:'image/svg+xml',buffer:Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><path d="M-10 5H30V30H-10Z" fill="red"/><image xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="${image}" x="40" y="5" width="20" height="20"/><text x="10" y="65" font-family="Arimo" font-size="20">Hi</text></svg>`)});
     await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');
     const recovery=await page.evaluate(()=>localStorage.getItem('vector-lab'));
-    await page.locator('#file-menu-button').click();const downloading=page.waitForEvent('download');await page.locator('#export-png').click();const file=await downloading;
+    await page.locator('#file-menu-button').click();const downloading=page.waitForEvent('download');await page.locator('#export-png').click();await page.locator('#download-png').click();const file=await downloading;
     expect(file.suggestedFilename()).toBe('my-art.png');const bytes=Buffer.concat(await(await file.createReadStream()).toArray());
     expect(bytes.subarray(0,8).toString('hex')).toBe('89504e470d0a1a0a');
     const pixels=await page.evaluate(async base64=>{

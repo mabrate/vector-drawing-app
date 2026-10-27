@@ -439,19 +439,25 @@ catch(error){if(revision===exportRevision&&$('export-dialog').open){$('export-st
 finally{shareBusy=false;updateExportActions();}
 };
 $('export-dialog').addEventListener('close',()=>{++exportRevision;clearPreparedExport();});
+let editablePNGExport=false;
 async function downloadPNG(editable=false){
-const button=$(editable?'export-editable-png':'export-png');if(button.disabled)return;
-finish();button.disabled=true;const {width,height}=pageSize,name=svgFilename(drawingName).replace(/\.svg$/i,'.png');say('Preparing PNG…');
+const button=$('download-png');if(button.disabled)return;
+finish();button.disabled=true;const onlySelected=$('png-export-selected').checked,items=onlySelected?selected.filter(item=>item.isInserted()):art,name=svgFilename(drawingName).replace(/\.svg$/i,'.png');$('png-export-status').textContent='Preparing PNG…';
 try{
-const svg=editable?serializeSVG():null;
-let blob=await createPNG(await vectorSVG(),width,height);if(editable)blob=await embedEditableSVG(blob,svg);
+if(onlySelected&&!items.length)throw Error('Select at least one object to export.');
+const svg=editable?serializeSVG(items,true,onlySelected):null;
+const rendered=await vectorSVG(items,onlySelected),root=new DOMParser().parseFromString(rendered,'image/svg+xml').documentElement,viewBox=root.getAttribute('viewBox').split(/\s+/).map(Number),width=viewBox[2],height=viewBox[3];
+let blob=await createPNG(rendered,width,height);if(editable)blob=await embedEditableSVG(blob,svg);
 const url=URL.createObjectURL(blob),link=document.createElement('a');
 link.href=url;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+$('png-export-dialog').close();
 say(`PNG download started · ${Math.max(1,Math.round(width))} × ${Math.max(1,Math.round(height))} pixels · transparent background.`);
-}catch(error){say(error.message||'Could not export this drawing as PNG.');}finally{button.disabled=false;}
+}catch(error){$('png-export-status').textContent=error.message||'Could not export this drawing as PNG.';}finally{button.disabled=false;}
 }
-$('export-png').onclick=()=>downloadPNG();
-$('export-editable-png').onclick=()=>downloadPNG(true);
+function openPNGExport(editable=false){finish();editablePNGExport=editable;$('png-export-title').textContent=editable?'Export editable PNG':'Export PNG';$('png-export-selected').checked=false;$('png-export-selected').disabled=!selected.some(item=>item.isInserted());$('png-selection-help').textContent=selected.length?'Fits the PNG to the selected objects, including outlines.':'Select artwork first to export selected objects.';$('png-export-status').textContent='Transparent background'+(editable?' · Includes editable artwork.':'.');$('png-export-dialog').showModal();}
+$('export-png').onclick=()=>openPNGExport();
+$('export-editable-png').onclick=()=>openPNGExport(true);
+$('download-png').onclick=()=>downloadPNG(editablePNGExport);
 $('open').onclick=()=>$('file').click();$('file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const imported=parseSVG(await file.text());if(!confirm('Replace this drawing with the selected SVG? Save your current SVG first if needed.'))return;setDrawingName(file.name);art.removeChildren();pageSize=imported.page;imported.items.forEach(i=>art.addChild(i));selected=[];path=null;node=null;$('finish').hidden=true;commit();fit();canvas.focus({preventScroll:true});say('SVG opened. Select a shape to edit.');ensureDocumentFonts();}catch(error){say(error.message);}};
 $('new').onclick=()=>{if(art.children.length&&!confirm('Start a new drawing? Save your SVG first if you want to keep this one.'))return;setDrawingName('vector-lab');art.removeChildren();pageSize={...DEFAULT_PAGE};selected=[];path=null;node=null;$('finish').hidden=true;commit();fit();};
 function editingText(e){return e.target.closest('input,textarea,select,[contenteditable="true"]');}
@@ -588,6 +594,26 @@ handleSize.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault(
 document.addEventListener('pointerdown',e=>{if(!handleSize.hidden&&!handleSize.contains(e.target)){applyHandleSize(handleSize.dataset.axis);if(!handleSize.hidden){e.preventDefault();e.stopImmediatePropagation();}}},true);
 $('units').addEventListener('change',hideHandleSize);
 
+// Measure detached copies so hidden descendants do not enlarge the page.
+function visibleContentBounds(){
+ let bounds=null;
+ for(const item of art.children){
+  const copy=item.clone({insert:false});
+  try{
+   function prune(node){if(!node.visible||node.opacity===0)return false;if(node.children){for(const child of [...node.children])if(!prune(child))child.remove();return node.children.length>0;}return node.clipMask||node instanceof paper.Raster||!!node.fillColor||!!node.strokeColor;}
+   if(prune(copy)){const box=copy.strokeBounds;if(box.width||box.height)bounds=bounds?bounds.unite(box):box.clone();}
+  }finally{copy.remove();}
+ }
+ return bounds;
+}
+$('fit-canvas-content').onclick=()=>{
+ finish();const bounds=visibleContentBounds();
+ if(!bounds)return say('Add visible artwork before fitting the canvas.');
+ if(bounds.width>100000||bounds.height>100000)return say('Content is too large to fit the canvas.');
+ art.children.forEach(item=>item.translate(bounds.topLeft.negate()));
+ pageSize={width:Math.max(.01,bounds.width),height:Math.max(.01,bounds.height)};
+ guides=[];hideHandleSize();commit();fit();say('Canvas fitted to visible content.');
+};
 function applyPageDimension(axis){const field=$(`page-${axis}`),value=field.valueAsNumber*units[$('units').value];if(!Number.isFinite(value)||value<=0||value>100000)return say('Enter a positive artboard dimension up to 100,000 pixels.');finish();pageSize={...pageSize,[axis]:value};delete field.dataset.pending;commit();say('Artboard dimension applied');}
 for(const axis of ['width','height']){const field=$(`page-${axis}`);field.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();if(field.dataset.pending)applyPageDimension(axis);}});field.addEventListener('blur',()=>{if(field.dataset.pending)applyPageDimension(axis);});}
 for(const id of ['position-x','position-y'])$(id).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('apply-position').click();}});
