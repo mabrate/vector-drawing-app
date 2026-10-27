@@ -341,7 +341,7 @@ $('undo').onclick=()=>{if(path){undoPenNode();return;}if(history.length>1){futur
 $('canvas-undo').onclick=()=>$('undo').click();$('canvas-redo').onclick=()=>$('redo').click();
 for(const id of ['fill','stroke','no-fill','no-stroke'])$(id).onchange=()=>{const channel=id.replace('no-',''),picker=$(channel),checkbox=$(`no-${channel}`);if(id.startsWith('no-'))picker.setNone(checkbox.checked);else checkbox.checked=picker.none;const value=checkbox.checked?null:pickerColor(channel);(['bucket','blob'].includes(tool)?[]:selected.filter(i=>!imageParts(i))).forEach(i=>i[`${channel}Color`]=value);commit();};
 $('width').onchange=()=>{const value=$('width').valueAsNumber*units[$('units').value];if(!Number.isFinite(value)||value<0||value>100000)return say('Enter a stroke width from 0 to 100,000 pixels.');selected.filter(i=>!imageParts(i)).forEach(i=>resizeStroke(i,value));commit();};
-let previousUnit='in';try{const savedUnit=localStorage.getItem('vector-lab-unit');if(units[savedUnit])$('units').value=savedUnit;}catch{}previousUnit=$('units').value;$('width').value=3/units[previousUnit];
+let previousUnit=$('units').value;try{const savedUnit=localStorage.getItem('vector-lab-unit');if(units[savedUnit])$('units').value=savedUnit;}catch{}previousUnit=$('units').value;$('width').value=3/units[previousUnit];
 function formatLength(pixels){return Number((pixels/units[$('units').value]).toFixed(4));}
 function nudgeAmount(large=false){return $('units').value==='in'?(large?1:1/8):(large?10:1);}
 $('units').onchange=()=>{const pixels=Number($('width').value)*units[previousUnit];previousUnit=$('units').value;$('width').value=Number((pixels/units[previousUnit]).toFixed(8));guides=[];try{localStorage.setItem('vector-lab-unit',previousUnit);}catch{}refresh();};
