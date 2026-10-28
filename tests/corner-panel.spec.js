@@ -1,5 +1,7 @@
 import {test,expect} from '@playwright/test';
 test.use({launchOptions:{executablePath:'/usr/bin/google-chrome'}});
+// This precision check enters a radius in inches, independent of the app default.
+test.beforeEach(async({page})=>{await page.addInitScript(()=>localStorage.setItem('vector-lab-unit','in'));});
 for(const viewport of [{width:1280,height:800},{width:390,height:844}])test(`corner treatments in Align at ${viewport.width}`,async({page})=>{
  await page.setViewportSize(viewport);await page.goto('/');page.once('dialog',d=>d.accept());
  await page.locator('#file').setInputFiles({name:'corner.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M100 200L200 200L200 300" fill="none" stroke="black"/></svg>')});

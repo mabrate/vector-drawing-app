@@ -5,14 +5,15 @@ test('touch drag preserves all selected shapes; tap still removes one',async({pa
   page.once('dialog',d=>d.accept());
   await page.locator('#file').setInputFiles({name:'three.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><path d="M100 300h100v100h-100z"/><path d="M400 300h100v100h-100z"/><path d="M700 300h100v100h-100z"/></svg>')});
   await expect(page.locator('#status')).toContainText('SVG opened');
-  await page.locator('#multi').check({force:true});
-  await page.locator('#snap-button').click();
+  await page.locator('#file-menu-button').click();await page.locator('#settings').click();
   await page.locator('#snapping').uncheck();
-  await page.locator('#snap-button').click();
+  await page.locator('#settings-done').click();
   const point=async(x,y)=>page.locator('#canvas').evaluate((c,{x,y})=>{const r=c.getBoundingClientRect(),z=Math.min((r.width-50)/1056,(r.height-50)/816);return{x:r.x+r.width/2+(x-528)*z,y:r.y+r.height/2+(y-408)*z};},{x,y});
   const cdp=await page.context().newCDPSession(page);
   const touch=async(type,p)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:p?[p]:[]});
-  for(const x of [150,450,750]){await touch('touchStart',await point(x,350));await touch('touchEnd');}
+  await touch('touchStart',await point(150,350));await touch('touchEnd');
+  await page.locator('#multi').check();
+  for(const x of [450,750]){await touch('touchStart',await point(x,350));await touch('touchEnd');}
   const positions=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children.map(i=>{const s=i[1].segments[0];return Array.isArray(s[0])?s[0]:s;}));
   const before=await positions();
   await touch('touchStart',await point(450,350));

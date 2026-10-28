@@ -17,5 +17,5 @@ test('X Y W H expressions apply in page units, resolve to values, and support Un
 test('invalid and nonpositive expressions preserve artwork, and inline math commits outside',async({page})=>{
  await setup(page);const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
  for(const text of ['100 +', '10 / 0', '1 - 2']){await page.locator('#dimension-width').fill(text);await page.locator('#dimension-width').press('Enter');expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);}
- await page.locator('#dimension-width').fill('200');await page.locator('#dimension-width').press('Enter');await page.locator('#selection-width-label').fill('(100 + 25) * 2');await page.locator('#unit-button').click();await expect(page.locator('#dimension-width')).toHaveValue('250');await expect(page.locator('#selection-width-label')).toHaveValue('250');
+ await page.locator('#dimension-width').fill('200');await page.locator('#dimension-width').press('Enter');await page.locator('#selection-width-label').fill('(100 + 25) * 2');await page.locator('#file-menu-button').click();await expect(page.locator('#dimension-width')).toHaveValue('250');await expect(page.locator('#selection-width-label')).toHaveValue('250');
 });

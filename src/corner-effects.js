@@ -80,6 +80,7 @@ export function installCornerControls({paper,getNodes,getSelection,setSelection,
  const display=value=>Number(value.toFixed(8));
  function sync(){
   controls.hidden=getTool()!=='nodes';
+  if(controls.hidden||document.getElementById('panel-align').hidden)return;
   const scale=getUnitScale(),changed=scale!==displayedScale;
   if(changed){amount.value=display(Number(amount.value)*displayedScale/scale);displayedScale=scale;}
   const nodes=targets();apply.disabled=slider.disabled=amount.disabled=!nodes.length;type.disabled=!targets('fillet').length;reset.disabled=!targets('fillet').length;
