@@ -231,3 +231,10 @@ header nav{overflow:visible}
 #offset-dialog input[type=checkbox]{width:20px;height:20px;flex:0 0 auto}
 #offset-dialog p{font-size:13px;line-height:1.5}
 #offset-dialog .pair{margin-top:16px}
+
+/* Recovery state stays visible independently of temporary action feedback. */
+#browser-recovery{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;flex:0 0 auto;padding:6px 12px;min-width:0;background:#f3f8ef;border-bottom:1px solid #d8e0dc;font-size:12px;line-height:1.4}
+#recovery-status{min-width:0;overflow-wrap:anywhere}
+#browser-recovery[data-state=paused],#browser-recovery[data-state=unavailable]{background:#fff1d2;color:#69470c;border-color:#e6cb93}
+#take-over-recovery{min-height:36px;padding:5px 10px;font-size:12px;flex:0 0 auto;max-width:100%;white-space:normal}
+@media(max-width:600px){#browser-recovery{padding:6px 8px}}

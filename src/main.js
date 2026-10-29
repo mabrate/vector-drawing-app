@@ -1,3 +1,4 @@
+import {createBrowserRecovery} from './browser-recovery.js';
 import {createInteractionOverlay} from './interaction-overlay.js';
 import {installPathOffset} from './path-offset.js';
 import {alphaBounds} from './alpha-bounds.js';
@@ -77,7 +78,8 @@ function pickerColor(id){const color=new paper.Color($(id).value);color.alpha=$(
 function syncSelectedStyle(){if(['bucket','blob'].includes(tool))return;const item=selected.length===1?selected[0]:null;if(item!==styleSelection){styleSelection=item;if(item&&!imageParts(item)){for(const id of ['fill','stroke']){const color=item[`${id}Color`];if(color){const rgb=color.convert('rgb');rgb.alpha=1;$(id).setColor(rgb.toCSS(true),color.alpha);}$(id).setNone(!color);$(`no-${id}`).checked=!color;}}}}
 function style(){return {...strokeControls?.style(),fillColor:$('no-fill').checked?null:pickerColor('fill'),strokeColor:$('no-stroke').checked?null:pickerColor('stroke'),strokeWidth:Math.max(0,Math.min(100000,(Number($('width').value)||0)*units[$('units').value]))};}
 function snapshot(){art.data.page={...pageSize};return art.exportJSON({asString:true,precision:15});}
-function persist(saved){try{localStorage.setItem('vector-lab',saved??snapshot());say('Recovered locally · Save SVG to keep a copy');}catch{say('Browser recovery unavailable. Save an SVG copy.');}}
+let browserRecovery;
+function persist(saved){browserRecovery?.save(saved??snapshot(),drawingName);if(browserRecovery?.mode==='saved')say('Recovered locally · Save SVG to keep a copy');else if(browserRecovery?.mode==='unavailable')say('Browser recovery unavailable. Save an SVG copy.');}
 function commit(render=true){const s=snapshot();if(history.at(-1)!==s){history.push(s);if(history.length>60)history.shift();future=[];}persist(s);if(render)refresh();}
 function restore(s){const view={zoom:paper.view.zoom,center:paper.view.center.clone()};viewFitted=false;hideHandleSize();art.removeChildren();art.importJSON(s);art.getItems({class:paper.PointText}).forEach(migrateTextFont);pageSize={...(art.data.page||DEFAULT_PAGE)};selected=[];selectedNodes=[];path=null;node=null;paper.view.zoom=view.zoom;paper.view.center=view.center;refresh();persist();ensureDocumentFonts();}
 function setTool(t){hideHandleSize();if(path)finish();tool=t;for(const id of ['stroke','width'])$(id).closest('label').hidden=['bucket','blob'].includes(t);document.querySelectorAll('.stroke-detail').forEach(label=>label.hidden=['bucket','blob'].includes(t));$('blob-settings').hidden=t!=='blob';if(['bucket','blob'].includes(t)){selected=[];$('no-fill').checked=false;$('fill').setNone(false);$('stroke-picker').hidden=true;$('stroke').setAttribute('aria-expanded','false');}node=null;selectedNodes=[];$('panel-nodes').hidden=t!=='nodes';if(t==='nodes'){if(activePanel!=='align')openPanel('style');if(selected.some(isObjectGroup))say('Ungroup to edit individual paths.');else if(selected.some(i=>i.data.shapeBuild))say('Edit the combined outline directly. Undo restores the original combination.');}else if(['text','pen','rectangle','ellipse','dropper','bucket','blob'].includes(t))openPanel('style');else if(activePanel==='nodes')openPanel(t==='select'?'dimensions':'style');document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));$('tool-name').textContent=t[0].toUpperCase()+t.slice(1);$('hint').textContent=hints[t];refresh();}
@@ -429,7 +431,7 @@ const child=item.firstChild,matrix=item.matrix.appended(child.matrix);child.appl
 function flatten(item){if(item instanceof paper.PointText)restoreTextLayout(item);if(item.clipMask)return;const matrix=item.globalMatrix.clone();if(item instanceof paper.Group&&item.clipped&&item.getItems({class:paper.Raster}).length){item.data.image=true;delete item.data.shapeBuild;item.remove();item.matrix=matrix;items.push(item);}else if(isObjectGroup(item)&&(item.data.objectGroup===true||item.opacity!==1||!item.visible)){item.data.objectGroup=true;restoreGroupedBuilds(item);item.remove();item.applyMatrix=false;item.matrix=matrix;items.push(item);}else if(item instanceof paper.Group){for(const child of [...item.children])flatten(child);}else{const build=builds.get(item.name);item.remove();item.applyMatrix=false;item.matrix=matrix;if(build&&item instanceof paper.PathItem){item.data.shapeBuild=transformedBuild(build,matrix);item.applyMatrix=true;item.applyMatrix=false;}else{delete item.data.shapeBuild;item.applyMatrix=!item.data.cornerEffect;}items.push(item);}}flatten(group);group.remove();return {items,page:{width,height}};}
 let exportRevision=0,preparedURL=null,preparedSVGFile=null,shareBusy=false;
 let drawingName='vector-lab';try{drawingName=localStorage.getItem('vector-lab-name')||drawingName;}catch{}
-function setDrawingName(value){drawingName=svgFilename(value).replace(/\.svg$/i,'');$('svg-filename').value=drawingName;try{localStorage.setItem('vector-lab-name',drawingName);}catch{}}
+function setDrawingName(value){drawingName=svgFilename(value).replace(/\.svg$/i,'');$('svg-filename').value=drawingName;browserRecovery?.save(snapshot(),drawingName);}
 function updateExportActions(){
 const ready=!!preparedSVGFile,supported=ready&&canShareSVG(preparedSVGFile);
 $('download-svg').disabled=!ready||shareBusy;$('download-svg').classList.toggle('primary',!supported);$('share-svg').hidden=!supported;$('share-svg').disabled=!ready||shareBusy;
@@ -557,7 +559,34 @@ async function insertImages(files){finish();try{const added=[];for(const file of
 $('insert-image').onclick=()=>$('image-file').click();$('image-file').onchange=e=>{const files=[...e.target.files];e.target.value='';if(files.length)insertImages(files);};
 
 var preserveDimensionViewUntil=0;
-paper.view.onResize=e=>{if(!viewFitted||drag||gesture||document.activeElement?.matches('input[inputmode=decimal],#dimension-controls input,#dimension-labels input,#handle-size input,#page-settings input')||Date.now()<preserveDimensionViewUntil||document.getElementById('handle-size')&&!$('handle-size').hidden){paper.view.center=paper.view.center.subtract(e.delta.divide(2*paper.view.zoom));refresh();const editor=document.getElementById('handle-size');if(editor&&!editor.hidden){editor.style.left=`${Math.max(4,Math.min(parseFloat(editor.style.left)||4,$('stage').clientWidth-editor.offsetWidth-4))}px`;editor.style.top=`${Math.max(4,Math.min(parseFloat(editor.style.top)||4,$('stage').clientHeight-editor.offsetHeight-4))}px`;}return;}fit();};try{const saved=localStorage.getItem('vector-lab');if(saved){art.importJSON(saved);art.getItems({class:paper.PointText}).forEach(migrateTextFont);pageSize={...(art.data.page||DEFAULT_PAGE)};say('Previous drawing recovered.');}}catch{say('Recovery unavailable. Save your SVG regularly.');}history=[snapshot()];fit();
+paper.view.onResize=e=>{if(!viewFitted||drag||gesture||document.activeElement?.matches('input[inputmode=decimal],#dimension-controls input,#dimension-labels input,#handle-size input,#page-settings input')||Date.now()<preserveDimensionViewUntil||document.getElementById('handle-size')&&!$('handle-size').hidden){paper.view.center=paper.view.center.subtract(e.delta.divide(2*paper.view.zoom));refresh();const editor=document.getElementById('handle-size');if(editor&&!editor.hidden){editor.style.left=`${Math.max(4,Math.min(parseFloat(editor.style.left)||4,$('stage').clientWidth-editor.offsetWidth-4))}px`;editor.style.top=`${Math.max(4,Math.min(parseFloat(editor.style.top)||4,$('stage').clientHeight-editor.offsetHeight-4))}px`;}return;}fit();};fit();
+let recoveredBrowserData,recoveredBrowserName;
+function recoverBrowserDrawing(){
+  try{
+    const saved=recoveredBrowserData=localStorage.getItem('vector-lab');
+    if(saved){selected=[];selectedNodes=[];art.removeChildren();art.importJSON(saved);art.getItems({class:paper.PointText}).forEach(migrateTextFont);pageSize={...(art.data.page||DEFAULT_PAGE)};say('Previous drawing recovered.');}
+    recoveredBrowserName=localStorage.getItem('vector-lab-name');
+    drawingName=recoveredBrowserName||'vector-lab';
+  }catch{say('Recovery unavailable. Save your SVG regularly.');}
+  history=[snapshot()];fit();
+  return {snapshot:history[0],name:drawingName};
+}
+const initialRecoveryState=recoverBrowserDrawing();
+browserRecovery=createBrowserRecovery({onState:({mode,dirty})=>{
+  const messages={checking:'Checking browser recovery…',saved:'Saved in this browser',paused:dirty?'Changes aren’t saved in this browser—Save SVG to keep them.':'Local autosave paused—another tab is using browser recovery.',unavailable:'Browser recovery unavailable—Save SVG to keep your work.'};
+  $('recovery-status').textContent=messages[mode];
+  $('browser-recovery').dataset.state=mode;
+  $('take-over-recovery').hidden=mode!=='paused';
+}});
+$('take-over-recovery').onclick=async()=>{
+  if(!confirm('Use this tab for browser recovery? This replaces the existing recovery copy with this drawing and pauses local autosave in the other tab. Save an SVG from that tab first if you need to keep its work.'))return;
+  $('take-over-recovery').disabled=true;
+  $('take-over-recovery').textContent='Waiting for the other tab…';
+  await browserRecovery.takeOver();
+  $('take-over-recovery').textContent='Use this tab for recovery';
+  $('take-over-recovery').disabled=false;
+};
+
 
 new ResizeObserver(()=>{const r=$('stage').getBoundingClientRect(),size=paper.view.viewSize;if(Math.abs(r.width-size.width)>.5||Math.abs(r.height-size.height)>.5)paper.view.viewSize=new paper.Size(r.width,r.height);}).observe($('stage'));
 
@@ -708,3 +737,10 @@ function positionToolbarMenus(){
 document.addEventListener('click',positionToolbarMenus);window.addEventListener('resize',positionToolbarMenus);
 document.querySelector('.context').addEventListener('scroll',positionToolbarMenus);
 for(const menu of [document.querySelector('#image-crop details')])menu.addEventListener('toggle',positionToolbarMenus);
+
+// Load the canvas synchronously, then check again when ownership is granted.
+// This preserves immediate keyboard interaction after reloading the page.
+void browserRecovery.start(initialRecoveryState.snapshot,initialRecoveryState.name,()=>{
+  if(localStorage.getItem('vector-lab')!==recoveredBrowserData||localStorage.getItem('vector-lab-name')!==recoveredBrowserName)return recoverBrowserDrawing();
+  return {snapshot:snapshot(),name:drawingName};
+});

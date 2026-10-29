@@ -15,7 +15,8 @@ test('editable PNG download reimports as shapes or pixels, with cancel and undo'
  expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
  await page.locator('#image-file').setInputFiles(input);await page.getByRole('button',{name:'Editable shapes',exact:true}).click();
  await expect(page.locator('#png-import-dialog')).not.toBeVisible();
- let saved=await page.evaluate(()=>localStorage.getItem('vector-lab'));expect((saved.match(/PointText/g)||[]).length).toBe(2);
+ // The dialog hides before its asynchronous close handler finishes importing.
+ await expect.poll(()=>page.evaluate(()=>(localStorage.getItem('vector-lab').match(/PointText/g)||[]).length)).toBe(2);
  await page.keyboard.press('Control+z');expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
  await page.locator('#image-file').setInputFiles(input);await page.getByRole('button',{name:'Regular image',exact:true}).click();
  await expect.poll(()=>page.evaluate(()=>localStorage.getItem('vector-lab'))).toContain('Raster');
