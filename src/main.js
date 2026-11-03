@@ -21,6 +21,7 @@ const fontReady=fontLibrary.ensure('Arimo');fontReady.catch(()=>{});
 var fontPicker;
 import './style.css';
 import { installBackgroundRemoval } from './background-removal.js';
+import { installImageAdjustments } from './image-adjustments-dialog.js';
 import { installImageTracing } from './image-tracing-dialog.js';
 import { shapeRecord, restoreShape, transformedBuild, validBuild } from './shape-building.js';
 import { groupObjects,ungroupObjects,isObjectGroup } from './object-grouping.js';
@@ -507,6 +508,14 @@ let cropSelection=null;
 function syncCrop(){const item=selected.length===1?selected[0]:null,parts=imageParts(item);$('image-crop').hidden=!parts;if(item!==cropSelection){cropSelection=item;if(parts){const values=item.data.crop||{left:0,right:0,top:0,bottom:0};for(const edge of ['left','right','top','bottom'])$(`crop-${edge}`).value=values[edge];}}}
 function cropImage(reset=false){const item=selected.length===1?selected[0]:null,parts=imageParts(item);if(!parts)return say('Select one image to crop.');const values=Object.fromEntries(['left','right','top','bottom'].map(edge=>[edge,reset?0:$(`crop-${edge}`).valueAsNumber]));if(Object.values(values).some(v=>!Number.isFinite(v)||v<0||v>=100)||values.left+values.right>=100||values.top+values.bottom>=100)return say('Crop values must leave some image visible.');const b=parts.raster.bounds;const box=new paper.Rectangle(b.x+b.width*values.left/100,b.y+b.height*values.top/100,b.width*(1-(values.left+values.right)/100),b.height*(1-(values.top+values.bottom)/100));let replacement=new paper.Path.Rectangle({rectangle:box,insert:false});for(const [operation,shapes] of [['subtract',item.data.cutouts||[]],['intersect',item.data.intersections||[]]])for(const saved of shapes){const cutter=paper.Base.importJSON(saved);cutter.remove();cutter.transform(parts.raster.matrix);const result=replacement[operation](cutter,{insert:false});replacement.remove();cutter.remove();replacement=result;}replacement.clipMask=true;parts.mask.replaceWith(replacement);item.data.crop=values;cropSelection=null;commit();say(reset?'Full image restored':'Image cropped');}
 $('start-crop').onclick=()=>setTool('crop');
+const adjustButton=document.createElement('button');adjustButton.id='adjust-image';adjustButton.textContent='Adjust';adjustButton.title='Adjust image color and tone';adjustButton.setAttribute('aria-label','Adjust image');$('image-crop').append(adjustButton);
+adjustButton.onclick=installImageAdjustments({
+getImage(){finish();const item=selected.length===1?selected[0]:null,parts=imageParts(item);return parts?{item,raster:parts.raster,canvas:parts.raster.canvas}:null;},
+apply(session,canvas){
+if(!session.item.isInserted()||imageParts(session.item)?.raster!==session.raster)return;
+session.raster.setImage(canvas);commit();say('Image adjusted. Undo restores the previous image.');
+},say
+});
 const backgroundButton=document.createElement('button');backgroundButton.id='remove-background';backgroundButton.textContent='Background';backgroundButton.title='Remove background';backgroundButton.setAttribute('aria-label','Remove background');$('image-crop').append(backgroundButton);
 backgroundButton.onclick=installBackgroundRemoval({
 getImage(){finish();const item=selected.length===1?selected[0]:null,parts=imageParts(item);return parts?{item,raster:parts.raster,canvas:parts.raster.canvas}:null;},

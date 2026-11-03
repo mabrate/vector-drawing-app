@@ -161,6 +161,12 @@ Choose **Dropper** in the left toolbar. Click to sample a single point, or drag 
 
 Sampling combines visible images and vector artwork against the white artboard, including transparency as displayed. It excludes selection handles and guides, and ignores pixels outside the artboard. Results are opaque RGB colors; the circle never appears in saved artwork. A second finger cancels sampling and pans/zooms normally.
 
+### Adjust image color and tone
+
+Select one image and choose **Adjust** beside the crop controls. **Appearance** offers Color, Grayscale, or Black & white with a threshold slider. Adjust Exposure (in stops), Contrast, and Saturation in the live preview. Under **Color ranges**, choose Reds, Yellows, Greens, Cyans, Blues, or Magentas, then change that range's saturation or brightness. Each range retains its own settings within the dialog. Range brightness also changes those colors' gray tones; neutral colors stay neutral.
+
+**Show original** compares with the image as it was when the dialog opened. **Reset all** clears every adjustment and range. **Apply** processes the full-resolution image while preserving transparency, placement, rotation, and crop masks. Undo restores the previous image. Cancel or Escape closes the dialog without changing the drawing. Adjustments run locally in a browser worker and are included in SVG, PNG, and editable PNG exports. Each new adjustment session starts with neutral controls for the image's current pixels.
+
 ### Trace an image to editable paths
 
 Select one image, then choose **Trace image** beside the crop and background removal controls. The modal compares the visible image with its vector preview. **Convert to paths** replaces the image in place; Undo restores it. Tracing runs locally in a browser worker, so adjusting settings or canceling does not upload the image or change the artwork.
