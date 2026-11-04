@@ -23,7 +23,7 @@ test('offset preview is reversible; applied geometry survives SVG reopen and Und
  await page.locator('#offset-path').click();await page.locator('#offset-distance').fill('-.1');await page.locator('#offset-dialog button[value=cancel]').click();expect(await state()).toBe(before);
  await page.locator('#offset-path').click();await page.locator('#offset-distance').fill('-.8');await expect(page.locator('#offset-apply')).toBeDisabled();await expect(page.locator('#offset-status')).toContainText('entire path');
  await page.locator('#offset-distance').fill('0.1');await expect(page.locator('#offset-apply')).toBeEnabled();await page.locator('#offset-join').selectOption('miter');await page.locator('#offset-apply').click();await expect(page.locator('#offset-dialog')).not.toBeVisible();
- const after=await state();expect(after).not.toBe(before);await page.locator('#undo').click();expect(await state()).toBe(before);await page.locator('#redo').click();expect(await state()).toBe(after);
+ const after=await state();expect(after).not.toBe(before);await page.locator('#canvas-undo').click();expect(await state()).toBe(before);await page.locator('#canvas-redo').click();expect(await state()).toBe(after);
  const svg=await output(page);await load(page,svg);await page.locator('#units').selectOption('px',{force:true});await expect(page.locator('#dimension-width')).toHaveValue('219.2');
 });
 test('offset copies keep originals and fit a touch-sized screen',async({page})=>{

@@ -11,7 +11,7 @@ async function pixels(page,svg){return page.evaluate(async svg=>{const image=new
 test('crop to drawn shape preserves pixels, undo, recovery and SVG reopening',async({page})=>{
  await setup(page);await page.locator('[data-boolean=intersect]').click();await expect(page.locator('#status')).toContainText('Image clipped to shape');
  const svg=await output(page);expect(svg).toContain('intersections');expect(await pixels(page,svg)).toEqual([255,0]);
- await page.locator('#undo').click();expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children.length)).toBe(2);await page.locator('#redo').click();await page.reload();expect(await pixels(page,await output(page))).toEqual([255,0]);
+ await page.locator('#canvas-undo').click();expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children.length)).toBe(2);await page.locator('#canvas-redo').click();await page.reload();expect(await pixels(page,await output(page))).toEqual([255,0]);
  await open(page,svg);await page.keyboard.press('Control+a');await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();expect(await pixels(page,await output(page))).toEqual([255,0]);
 });
 test('crop to shape keeps originals when there is no overlap',async({page})=>{

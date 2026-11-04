@@ -4,7 +4,7 @@ async function points(page,count){const r=await page.locator('#canvas').bounding
 async function drawing(page){return page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children||[]);}
 test('pen undo removes one node at a time and allows drawing to continue',async({page})=>{
  await page.goto('/');await page.locator('[data-tool=pen]').click();await points(page,3);
- await expect(page.locator('#undo')).toBeEnabled();
+ await expect(page.locator('#canvas-undo')).toBeEnabled();
  await page.keyboard.press('Control+z');let items=await drawing(page);expect(items).toHaveLength(1);expect(items[0][1].segments).toHaveLength(2);
  await expect(page.locator('#finish')).toBeVisible();
  await page.keyboard.press('Meta+z');items=await drawing(page);expect(items[0][1].segments).toHaveLength(1);

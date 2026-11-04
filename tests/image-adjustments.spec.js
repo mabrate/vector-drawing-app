@@ -89,7 +89,7 @@ test('image adjustments apply at full resolution and preserve crop, rotation, re
   expect(pixels.width).toBe(1600);expect(pixels.height).toBe(400);expect(pixels.pixels[3]).toBe(0);expect(pixels.pixels[7]).toBe(sourcePixels.pixels[7]);
   expect(pixels.pixels[8]).toBe(pixels.pixels[9]);expect(pixels.pixels[9]).toBe(pixels.pixels[10]);expect(pixels.pixels[8]).toBe(preview[0]);
   expect(group.matrix).toEqual(beforeGroup.matrix);expect(group.data).toEqual(beforeGroup.data);expect(group.children[0]).toEqual(beforeGroup.children[0]);expect(raster.matrix).toEqual(beforeRaster.matrix);
-  await page.locator('#undo').click();expect(await snapshot(page)).toBe(before);await page.locator('#redo').click();expect(await snapshot(page)).toBe(after);
+  await page.locator('#canvas-undo').click();expect(await snapshot(page)).toBe(before);await page.locator('#canvas-redo').click();expect(await snapshot(page)).toBe(after);
   await page.reload();expect(await snapshot(page)).toBe(after);
   const svg=await exportSVG(page);const svgSource=await page.evaluate(svg=>{const node=new DOMParser().parseFromString(svg,'image/svg+xml').querySelector('image');return node.getAttribute('href')||node.getAttributeNS('http://www.w3.org/1999/xlink','href');},svg);
   expect(await rasterPixels(page,svgSource)).toEqual(pixels);
@@ -130,7 +130,7 @@ test('adjustment preview follows shape clipping and cutouts rather than only cro
   expect((await previewPixel(page,0,0))[3]).toBe(0);expect((await previewPixel(page,45,45))[3]).toBe(255);
   await setRange(page,'exposure',1);await ready(page);expect((await previewPixel(page,0,0))[3]).toBe(0);
   await page.locator('#adjust-uncropped').check();expect(await page.locator('#adjust-canvas').evaluate(c=>[c.width,c.height])).toEqual([240,120]);expect((await previewPixel(page,30,30))[3]).toBe(255);
-  await page.locator('#adjust-cancel').click();await page.locator('#undo').click();await page.keyboard.press('Control+a');await page.locator('[data-boolean=subtract]').click();
+  await page.locator('#adjust-cancel').click();await page.locator('#canvas-undo').click();await page.keyboard.press('Control+a');await page.locator('[data-boolean=subtract]').click();
   await page.locator('#adjust-image').click();expect((await previewPixel(page,120,60))[3]).toBe(0);expect((await previewPixel(page,30,30))[3]).toBe(255);
   await page.locator('#adjust-uncropped').check();expect((await previewPixel(page,120,60))[3]).toBe(255);
 });

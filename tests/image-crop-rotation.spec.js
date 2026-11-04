@@ -44,8 +44,8 @@ test('drag crop stays aligned with the canvas on a rotated image and survives un
  });
  for(let i=0;i<4;i++)for(let axis=0;axis<2;axis++)expect(preview[i][axis]).toBeCloseTo(polygon[i][axis],3);
  await page.mouse.up();const cropped=await output(page);await expectClipped(page,cropped,original,polygon);
- await page.locator('#undo').click();await expectClipped(page,await output(page),original,[[0,0],[1056,0],[1056,816],[0,816]]);
- await page.locator('#redo').click();await page.reload();await expectClipped(page,await output(page),original,polygon);
+ await page.locator('#canvas-undo').click();await expectClipped(page,await output(page),original,[[0,0],[1056,0],[1056,816],[0,816]]);
+ await page.locator('#canvas-redo').click();await page.reload();await expectClipped(page,await output(page),original,polygon);
  await open(page,cropped);await expectClipped(page,await output(page),original,polygon);
  await page.keyboard.press('Control+a');await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
  await expectClipped(page,await output(page),original,[[0,0],[1056,0],[1056,816],[0,816]]);
@@ -57,7 +57,7 @@ for(const afterCrop of [false,true])for(const operation of ['intersect','subtrac
  await page.locator('#snapping').evaluate(el=>el.checked=false);await page.locator('[data-tool=pen]').click();for(const xy of [...polygon,polygon[0]]){const p=await projectPoint(page,xy);await page.mouse.click(p.x,p.y);}await page.locator('[data-tool=select]').click();await page.keyboard.press('Control+a');
  await page.locator(`[data-boolean=${operation}]`).click();await expect(page.locator('#status')).toContainText(operation==='intersect'?'Image clipped':'Shape subtracted');
  await page.screenshot({path:`/tmp/vector-lab-rotated-${operation}.png`});const cropped=await output(page);await expectClipped(page,cropped,original,polygon,operation==='subtract');
- await page.locator('#undo').click();await page.locator('#redo').click();await page.reload();await expectClipped(page,await output(page),original,polygon,operation==='subtract');
+ await page.locator('#canvas-undo').click();await page.locator('#canvas-redo').click();await page.reload();await expectClipped(page,await output(page),original,polygon,operation==='subtract');
  // Rebase the crop frame after shape clipping, then save and reopen it. Reset
  // must retain the original shape restriction in its raster coordinates.
  const rectangle=[[500,383],[548,383],[548,433],[500,433]];

@@ -25,8 +25,8 @@ test('background removal crops edges without moving rotated artwork and supports
  const cropped=await snapshot(),item=JSON.parse(cropped)[1].children[0][1];expect(item.matrix).toEqual(original.matrix);expect(item.children[1][1].matrix).toEqual(original.children[1][1].matrix);
  expect(item.data.crop).toEqual({left:30,right:30,top:20,bottom:20});
  const svg=await output();expect(await ink(svg)).toEqual(originalInk);
- await page.locator('#undo').click();expect(await snapshot()).toBe(before);
- await page.locator('#redo').click();await page.reload();expect(JSON.parse(await snapshot())[1].children[0][1].data.crop).toEqual(item.data.crop);
+ await page.locator('#canvas-undo').click();expect(await snapshot()).toBe(before);
+ await page.locator('#canvas-redo').click();await page.reload();expect(JSON.parse(await snapshot())[1].children[0][1].data.crop).toEqual(item.data.crop);
  page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'cropped.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg)});await expect(page.locator('#status')).toContainText('SVG opened');expect(await ink(await output())).toEqual(originalInk);
  await page.keyboard.press('Control+a');await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
  await expect(page.locator('#crop-left')).toHaveValue('0');expect(await ink(await output())).toEqual(originalInk);

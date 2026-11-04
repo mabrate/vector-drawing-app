@@ -75,6 +75,8 @@ Text fields keep their usual select/copy/paste behavior. Pasted artwork is offse
 ## Drawing, resizing, and rotation
 
 - Hold **Ctrl** while drawing rectangles/ellipses for squares/circles; while resizing, Ctrl preserves the selection's existing aspect ratio (including edge handles).
+- With touch input, corner resize handles preserve proportions automatically. Edge handles resize width or height independently; no keyboard is needed.
+- Resizing vector shapes keeps their stroke width consistent, including grouped shapes, combined shapes, and editable corner treatments.
 - Hold **Shift** to draw around the starting point or resize around the selection's center.
 - Combine **Ctrl+Shift** for constrained drawing/resizing from the center. Modifier keys can be changed during a drag.
 - In Select mode, drag the green round handle above the selection to rotate freely around its center. The status bar shows the rotation angle. Multiple selected shapes rotate together. Rotation supports touch, undo, SVG saving, and reopening; the Rotate 15° button remains available.
@@ -122,11 +124,15 @@ The top toolbar opens **Fill and Outline**, **Align and Distribute**, and **Dime
 
 Alignment defaults to **Visible edges**, including centered stroke thickness and joins. Choose **Paths** for geometric bounds. Single shapes align to the page; multiple shapes align to the last selected. Distribution requires three shapes and offers equal horizontal/vertical gaps and equally spaced left/right/top/bottom edges or centers. Outer objects stay fixed; a crowded span can result in negative gaps (overlap).
 
-The Nodes tool opens its settings automatically. Click an anchor, Shift-click or enable **Select multiple nodes** to add anchors, or drag empty space to box-select anchors on selected paths. Cmd/Ctrl+A selects all anchors on those paths. Selected nodes are larger, bright pink squares with dark outlines. Dragging selected anchors moves them together; arrow keys nudge them in the page units. Anchors, curve handles, hit testing, and node selection boxes follow the transformed path geometry, including rotated/scaled paths and compound paths, at any zoom.
+The Nodes tool opens its settings automatically. Click an anchor, Shift-click or enable the **Select multiple** icon to add anchors, or drag empty space to box-select anchors on selected paths. Cmd/Ctrl+A selects all anchors on those paths. Selected nodes are larger, bright pink squares with dark outlines. Dragging selected anchors moves them together; arrow keys nudge them in the page units. Anchors, curve handles, hit testing, and node selection boxes follow the transformed path geometry, including rotated/scaled paths and compound paths, at any zoom.
+
+Object stacking controls and the ruler are hidden in Nodes mode and return when another tool is selected. The **Select multiple** icon is shared by Select and Nodes: it adds shapes in Select mode, and adds both paths and individual nodes in Nodes mode.
 
 - **Corner:** first changes smooth/symmetric handles to independent handles without moving them; clicking Corner again removes both handles.
 - **Round:** keeps opposite handles on one tangent, allowing different lengths.
 - **Symmetric:** keeps opposite handles aligned and equal in length.
+
+Select two adjacent nodes and choose **Delete segment** to remove the line or curve between them while keeping both nodes. A closed path opens at that segment; an open path splits into two paths. The new endpoints remain selected for **Join endpoints**, and Undo restores the connection.
 
 Double-click/double-tap cycles through these corner stages and back to round. Node modes persist in browser recovery and SVG metadata; other editors may ignore this metadata while preserving the actual curve geometry.
 
@@ -251,7 +257,7 @@ In **Nodes**, double-click an outline (double-tap on touch) to insert an anchor 
 
 Select two open-path endpoints with **Multiple**, then choose **Join endpoints**. Endpoints from separate paths are connected by a straight segment; coincident endpoints merge into one anchor. The result retains curve geometry and uses the first endpoint’s path style. Selecting both ends of one path closes it. **Close path** connects the ends of each selected open path with at least three nodes.
 
-**Simplify…** overlays a pink preview and shows the before/after node count. Adjust tolerance in document pixels, then **Apply** or **Cancel**. Higher tolerance permits more shape changes; small details and holes should be checked before applying. Repair and simplification support Undo and editable SVG saving. Editing a combined outline clears its Break Apart history; Undo restores it.
+**Simplify…** overlays a pink preview and shows **Nodes: original → preview**. The slider has a separate live **Tolerance** value in document pixels; higher values allow more outline change and generally fewer nodes. Sharp corner positions and their incoming/outgoing directions stay intact; explicitly independent Corner nodes remain independent. Smooth spans, gentle bends on imported outlines, and redundant straight-line nodes can be reduced. If no reduction is possible at the current tolerance while preserving corners, the dialog says so. Check small details and holes before choosing **Apply**; **Cancel** keeps the original. Repair and simplification support Undo and editable SVG saving. Editing a combined outline clears its Break Apart history; Undo restores it.
 
 ## Everyday color palette
 

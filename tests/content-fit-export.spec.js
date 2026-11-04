@@ -6,7 +6,7 @@ test('fit canvas includes outlines, ignores hidden artwork and supports undo',as
  await open(page,svg);const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
  await page.locator('#file-menu-button').click();await page.locator('#settings').click();await page.locator('#units').selectOption('px');await page.locator('#fit-canvas-content').click();
  await expect(page.locator('#page-width')).toHaveValue('44');await expect(page.locator('#page-height')).toHaveValue('24');
- await page.locator('#settings-done').click();await page.locator('#undo').click();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
+ await page.locator('#settings-done').click();await page.locator('#canvas-undo').click();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
 });
 for(const editable of [false,true])test(`selected PNG fits selection and excludes other artwork (editable=${editable})`,async({page})=>{
  await open(page,'<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><path d="M0 0H120V80H0Z" fill="blue"/></svg>');

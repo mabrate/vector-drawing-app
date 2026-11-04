@@ -30,7 +30,7 @@ test('second tab can edit, undo, create, and download SVG without changing recov
   await expect(second.locator('#recovery-status')).toContainText('another tab');
   await openDrawing(second,'blue');
   await expect(second.locator('#recovery-status')).toContainText('Changes aren’t saved');
-  await second.locator('#undo').click();await second.locator('#redo').click();
+  await second.locator('#canvas-undo').click();await second.locator('#canvas-redo').click();
   expect(await saved(second)).toEqual(original);
   const svg=await exportSVG(second);expect(svg.name).toBe('blue.svg');expect(svg.text).toContain('#0000ff');
   expect(await saved(page)).toEqual(original);
@@ -56,7 +56,7 @@ test('confirmed transfer saves this tab and immediately stops the previous owner
   // The original tab retains its red artwork even after the transfer.
   const red=await exportSVG(page);expect(red.text).toContain('#ff0000');expect(red.name).toBe('red.svg');
   await page.locator('#canvas').focus();await page.keyboard.press('Control+a');await page.keyboard.press('ArrowRight');
-  await page.locator('#undo').click();await page.locator('#redo').click();
+  await page.locator('#canvas-undo').click();await page.locator('#canvas-redo').click();
   expect(await saved(page)).toEqual(blue);
   page.once('dialog',d=>d.accept());await page.reload();await state(page,'paused');expect((await exportSVG(page)).text).toContain('#0000ff');
   expect(await saved(page)).toEqual(blue);

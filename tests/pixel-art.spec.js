@@ -54,7 +54,7 @@ test('pixel mode previews, switches controls, applies and resets in the trace di
     expect(dimensions.viewBox[0]).toBe(0);expect(dimensions.viewBox[1]).toBe(0);
     for(let i=0;i<4;i++)expect(dimensions.bounds[i]).toBeCloseTo([0,0,160,80][i]);
 
-    await page.locator('#undo').click();await page.keyboard.press('Control+a');
+    await page.locator('#canvas-undo').click();await page.keyboard.press('Control+a');
     await page.locator('#trace-image').click();await expect(page.locator('#trace-mode')).toHaveValue('pixel');await expect(page.locator('#trace-block')).toHaveValue('8');await expect(page.locator('#trace-pixel-sizing')).toHaveValue('block');await page.locator('#trace-reset').click();await expect(page.locator('#trace-pixel-sizing')).toHaveValue('detail');await page.locator('#trace-cancel').click();
   }finally{await browser.close();}
 });

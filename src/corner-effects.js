@@ -16,23 +16,27 @@ export function cornerModel(path){
  if(saved?.version===1&&Array.isArray(saved.source)&&saved.source.length>=2&&saved.source.length<=10000&&saved.source.every(s=>Array.isArray(s)&&s.length===3&&s.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))&&Array.isArray(saved.map)&&saved.map.length===path.segments.length&&saved.map.every(i=>Number.isInteger(i)&&i>=0&&i<saved.source.length)&&sameCornerGeometry(path,saved.geometry)&&saved.closed===path.closed&&saved.effects&&Object.values(saved.effects).every(e=>e&&['fillet','chamfer'].includes(e.type)&&Number.isFinite(e.amount)&&e.amount>=0)){
   const matrix=path.globalMatrix.values;
   if(saved.matrix&&matrix.some((v,i)=>Math.abs(v-saved.matrix[i])>1e-9)){
-   const world=p=>({x:matrix[0]*p[0]+matrix[2]*p[1]+matrix[4],y:matrix[1]*p[0]+matrix[3]*p[1]+matrix[5]});
-   for(const [key,effect] of Object.entries(saved.effects)){
-    const i=Number(key),start=saved.map.indexOf(i),n=saved.source.length;if(start<0||!effect.amount||!eligible(saved.source,i,saved.closed))continue;
-    if(effect.arcAngle){
-     const segment=path.segments[start],anchor=path.localToGlobal(segment.point),handle=path.localToGlobal(segment.point.add(segment.handleOut));
-     effect.amount=anchor.getDistance(handle)/(4/3*Math.tan(Math.abs(effect.arcAngle)/4));continue;
-    }
-    const p=world(saved.source[i][0]),a=world(saved.source[(i+n-1)%n][0]),b=world(saved.source[(i+1)%n][0]),t=path.localToGlobal(path.segments[start].point),u={x:a.x-p.x,y:a.y-p.y},v={x:b.x-p.x,y:b.y-p.y};
-    const angle=Math.acos(Math.max(-1,Math.min(1,(u.x*v.x+u.y*v.y)/(Math.hypot(u.x,u.y)*Math.hypot(v.x,v.y)))));
-    effect.amount=Math.hypot(t.x-p.x,t.y-p.y)*(effect.type==='fillet'?Math.tan(angle/2):1);
-   }
-   saved.matrix=matrix;
+   refreshCornerAmounts(path,saved);
   }
   return saved;
  }
  delete path.data.cornerEffect;
  return null;
+}
+export function refreshCornerAmounts(path,saved){
+ const matrix=path.globalMatrix.values;
+ const world=p=>({x:matrix[0]*p[0]+matrix[2]*p[1]+matrix[4],y:matrix[1]*p[0]+matrix[3]*p[1]+matrix[5]});
+ for(const [key,effect] of Object.entries(saved.effects)){
+  const i=Number(key),start=saved.map.indexOf(i),n=saved.source.length;if(start<0||!effect.amount||!eligible(saved.source,i,saved.closed))continue;
+  if(effect.arcAngle){
+   const segment=path.segments[start],anchor=path.localToGlobal(segment.point),handle=path.localToGlobal(segment.point.add(segment.handleOut));
+   effect.amount=anchor.getDistance(handle)/(4/3*Math.tan(Math.abs(effect.arcAngle)/4));continue;
+  }
+  const p=world(saved.source[i][0]),a=world(saved.source[(i+n-1)%n][0]),b=world(saved.source[(i+1)%n][0]),t=path.localToGlobal(path.segments[start].point),u={x:a.x-p.x,y:a.y-p.y},v={x:b.x-p.x,y:b.y-p.y};
+  const angle=Math.acos(Math.max(-1,Math.min(1,(u.x*v.x+u.y*v.y)/(Math.hypot(u.x,u.y)*Math.hypot(v.x,v.y)))));
+  effect.amount=Math.hypot(t.x-p.x,t.y-p.y)*(effect.type==='fillet'?Math.tan(angle/2):1);
+ }
+ saved.matrix=matrix;
 }
 export function straightCorner(source,index,closed){
  const n=source.length;if(!closed&&(index===0||index===n-1))return false;
