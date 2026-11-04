@@ -134,6 +134,8 @@ Double-click/double-tap cycles through these corner stages and back to round. No
 
 Use **Insert image** for PNG, JPEG, WebP, or GIF files, or paste an image from the clipboard while the canvas has focus. Images are embedded in saved SVGs; no upload or external image URL is required. Animated images use a still frame.
 
+Images fit to the page by default while retaining their source pixels. Use the arrow beside **Insert image** to choose **Original pixel size** before selecting files, or select an existing image and choose **Original pixel size** beside its crop controls. This restores one document pixel per source pixel while keeping the crop, rotation, and mirroring. Undo restores the previous placement. Large images may extend beyond the artboard: export selected objects to include the whole image, or use **Settings → Fit canvas to content**. Original pixel size refers to pixels, not the scan's printed dimensions or DPI.
+
 Select one image and choose **Crop** (left toolbar or Dimensions). Drag a rectangle over the image to keep that area; release to apply. Dragging works in either direction; the crop rectangle stays aligned with the canvas even when the image is rotated. **Reset crop** restores the complete image. Exact edge percentages remain available under **Crop menu**. Cropping is nondestructive: original pixels remain embedded, including cropped areas. Cropping, image placement, copying, and sizing support undo and browser recovery. Files are limited to 15 MB each; SVG imports to 30 MB. Large images can exceed browser-local recovery storage, so keep SVG copies.
 
 To crop an image to a shape, draw a closed shape (such as a circle or a closed Pen path) over an image. Use **Select multiple** to select both the image and shape, then choose **Intersect** in the shape-builder tools. Only the overlapping image area remains visible; the shape is consumed. The original pixels remain embedded, and Undo restores both objects. Shape cropping survives browser recovery and SVG save/open. Exact percentage crops and Reset crop retain the shape restriction. If the shape does not overlap the visible image, both originals are kept.
@@ -307,7 +309,9 @@ To refresh the curated catalog URLs, the three basics, name previews, and licens
 
 In **Save SVG**, enable **Export selected objects only** to save just the current selection, including selected groups. Its SVG page fits the visible geometry and stroke bounds of those objects. Leave it unchecked for the whole drawing at the current artboard size. The option is disabled when nothing is selected and works with either editable SVG or simple-path export, download, and sharing.
 
-Choose **File → Export PNG** to download the full page as a PNG with a transparent background. Page dimensions in pixels determine the image size (rounded to whole pixels). Artwork outside the page is clipped; editor controls and selection handles are excluded. Text is rendered with the drawing’s fonts. The PNG uses the current drawing name.
+Choose **File → Export PNG** to download the full page as a PNG with a transparent background. **Output size** shows the actual pixel width and height; changing either keeps the proportions linked. **Use page size** restores the default output dimensions. Artwork outside the page is clipped; editor controls and selection handles are excluded. Text is rendered with the drawing’s fonts. The PNG uses the current drawing name.
+
+With one image selected, **Use image resolution** switches to selected-object export and sets the output to preserve the source pixel detail, including the visible crop and rotation. This works even when the image was shrunk to fit the page. Custom output dimensions also work for selected objects and editable PNGs; editable artwork keeps its document dimensions when reopened. PNG output supports up to 16,384 pixels per side and 32 million pixels total.
 
 ### Offset paths
 

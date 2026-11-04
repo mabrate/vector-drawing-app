@@ -1,7 +1,8 @@
 // Render the exported artwork, rather than the editor canvas and its overlays.
 export async function createPNG(svg,width,height){
+  if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)throw Error('Enter positive PNG dimensions in pixels.');
   width=Math.max(1,Math.round(width));height=Math.max(1,Math.round(height));
-  if(width>16384||height>16384||width*height>32000000)throw Error('This page is too large for PNG export. Reduce the page dimensions to at most 16,384 pixels per side and 32 million pixels total.');
+  if(width>16384||height>16384||width*height>32000000)throw Error('This image is too large for PNG export. Use at most 16,384 pixels per side and 32 million pixels total.');
   const document=new DOMParser().parseFromString(svg,'image/svg+xml');
   document.documentElement.setAttribute('width',String(width));document.documentElement.setAttribute('height',String(height));
   const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(document)],{type:'image/svg+xml'}));

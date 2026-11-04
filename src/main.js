@@ -4,6 +4,7 @@ import {installPathOffset} from './path-offset.js';
 import {alphaBounds} from './alpha-bounds.js';
 import {embedEditableSVG,readEditableSVG} from './editable-png.js';
 import {createPNG} from './png-export.js';
+import {sourcePixelScale} from './image-resolution.js';
 import {installCornerControls,cornerModel} from './corner-effects.js';
 import {installStrokeControls,resizeStroke} from './stroke-style.js';
 import {installNodeTools} from './node-tools.js';
@@ -464,22 +465,64 @@ catch(error){if(revision===exportRevision&&$('export-dialog').open){$('export-st
 finally{shareBusy=false;updateExportActions();}
 };
 $('export-dialog').addEventListener('close',()=>{++exportRevision;clearPreparedExport();});
-let editablePNGExport=false;
-async function downloadPNG(editable=false){
-const button=$('download-png');if(button.disabled)return;
-finish();button.disabled=true;const onlySelected=$('png-export-selected').checked,items=onlySelected?selected.filter(item=>item.isInserted()):art,name=svgFilename(drawingName).replace(/\.svg$/i,'.png');$('png-export-status').textContent='Preparing PNG…';
+let editablePNGExport=false,preparedPNG=null,pngExportRevision=0;
+function pngImageSelection(){return selected.length===1&&selected[0].isInserted()&&imageParts(selected[0])?selected[0]:null;}
+function setPNGDimensions(width,height){$('png-export-width').value=Math.max(1,Math.round(width));$('png-export-height').value=Math.max(1,Math.round(height));}
+function pngReadyStatus(){$('png-export-status').textContent='Transparent background'+(editablePNGExport?' · Includes editable artwork.':'.');}
+async function preparePNGExport(){
+const revision=++pngExportRevision,onlySelected=$('png-export-selected').checked,items=onlySelected?selected.filter(item=>item.isInserted()):art;
+preparedPNG=null;$('download-png').disabled=true;$('png-image-resolution').disabled=true;$('png-document-size').disabled=true;
+$('png-export-width').disabled=$('png-export-height').disabled=true;$('png-export-status').textContent='Preparing preview dimensions…';
 try{
-if(onlySelected&&!items.length)throw Error('Select at least one object to export.');
-const svg=editable?serializeSVG(items,true,onlySelected):null;
-const rendered=await vectorSVG(items,onlySelected),root=new DOMParser().parseFromString(rendered,'image/svg+xml').documentElement,viewBox=root.getAttribute('viewBox').split(/\s+/).map(Number),width=viewBox[2],height=viewBox[3];
-let blob=await createPNG(rendered,width,height);if(editable)blob=await embedEditableSVG(blob,svg);
+  if(onlySelected&&!items.length)throw Error('Select at least one object to export.');
+  const svg=editablePNGExport?serializeSVG(items,true,onlySelected):null,rendered=await vectorSVG(items,onlySelected);
+  if(revision!==pngExportRevision||!$('png-export-dialog').open)return;
+  const viewBox=new DOMParser().parseFromString(rendered,'image/svg+xml').documentElement.getAttribute('viewBox').split(/\s+/).map(Number);
+  preparedPNG={rendered,svg,width:viewBox[2],height:viewBox[3]};setPNGDimensions(viewBox[2],viewBox[3]);
+  $('png-document-size').textContent=onlySelected?'Use selection size':'Use page size';
+  $('download-png').disabled=$('png-document-size').disabled=false;$('png-image-resolution').disabled=!pngImageSelection();
+  $('png-export-width').disabled=$('png-export-height').disabled=false;
+  pngReadyStatus();
+}catch(error){if(revision===pngExportRevision)$('png-export-status').textContent=error.message||'Could not prepare PNG export.';}
+}
+async function downloadPNG(editable=false){
+const button=$('download-png');if(button.disabled||!preparedPNG)return;
+const prepared=preparedPNG,width=Number($('png-export-width').value),height=Number($('png-export-height').value),name=svgFilename(drawingName).replace(/\.svg$/i,'.png');
+button.disabled=true;$('png-export-status').textContent='Preparing PNG…';
+try{
+if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1)throw Error('Enter positive whole-pixel dimensions.');
+let blob=await createPNG(prepared.rendered,width,height);if(editable)blob=await embedEditableSVG(blob,prepared.svg);
 const url=URL.createObjectURL(blob),link=document.createElement('a');
 link.href=url;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
 $('png-export-dialog').close();
 say(`PNG download started · ${Math.max(1,Math.round(width))} × ${Math.max(1,Math.round(height))} pixels · transparent background.`);
 }catch(error){$('png-export-status').textContent=error.message||'Could not export this drawing as PNG.';}finally{button.disabled=false;}
 }
-function openPNGExport(editable=false){finish();editablePNGExport=editable;$('png-export-title').textContent=editable?'Export editable PNG':'Export PNG';$('png-export-selected').checked=false;$('png-export-selected').disabled=!selected.some(item=>item.isInserted());$('png-selection-help').textContent=selected.length?'Fits the PNG to the selected objects, including outlines.':'Select artwork first to export selected objects.';$('png-export-status').textContent='Transparent background'+(editable?' · Includes editable artwork.':'.');$('png-export-dialog').showModal();}
+function openPNGExport(editable=false){
+finish();editablePNGExport=editable;$('png-export-title').textContent=editable?'Export editable PNG':'Export PNG';$('png-export-selected').checked=false;$('png-export-selected').disabled=!selected.some(item=>item.isInserted());$('png-selection-help').textContent=selected.length?'Fits the PNG to the selected objects, including outlines.':'Select artwork first to export selected objects.';
+const image=pngImageSelection(),parts=imageParts(image);$('png-image-resolution').hidden=!image;$('png-image-source').hidden=!image;
+if(parts)$('png-image-source').textContent=`Source image: ${parts.raster.width} × ${parts.raster.height} pixels. Image resolution includes the visible crop and rotation.`;
+$('png-export-dialog').showModal();void preparePNGExport();
+}
+$('png-export-selected').onchange=preparePNGExport;
+for(const axis of ['width','height']){
+$('png-export-'+axis).addEventListener('input',()=>{
+  if(!preparedPNG)return;const value=Number($('png-export-'+axis).value),other=axis==='width'?'height':'width';
+  if(Number.isFinite(value)&&value>0)$('png-export-'+other).value=Math.max(1,Math.round(value*preparedPNG[other]/preparedPNG[axis]));
+  pngReadyStatus();
+});
+$('png-export-'+axis).addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('download-png').click();}});
+}
+$('png-document-size').onclick=()=>{if(preparedPNG){setPNGDimensions(preparedPNG.width,preparedPNG.height);pngReadyStatus();}};
+$('png-image-resolution').onclick=async()=>{
+const item=pngImageSelection();if(!item)return;
+if(!$('png-export-selected').checked){$('png-export-selected').checked=true;await preparePNGExport();}
+if(!preparedPNG||!$('png-export-dialog').open||!$('png-export-selected').checked)return;
+const scale=sourcePixelScale(imageParts(item).raster.globalMatrix);
+if(scale>1e-10){setPNGDimensions(preparedPNG.width/scale,preparedPNG.height/scale);$('png-export-status').textContent='Image resolution selected · transparent background.';}
+else $('png-export-status').textContent='This image has no usable pixel scale. Restore its original pixel size first.';
+};
+$('png-export-dialog').addEventListener('close',()=>{++pngExportRevision;preparedPNG=null;});
 $('export-png').onclick=()=>openPNGExport();
 $('export-editable-png').onclick=()=>openPNGExport(true);
 $('download-png').onclick=()=>downloadPNG(editablePNGExport);
@@ -512,6 +555,20 @@ let cropSelection=null;
 function syncCrop(){const item=selected.length===1?selected[0]:null,parts=imageParts(item);$('image-crop').hidden=!parts;if(item!==cropSelection){cropSelection=item;if(parts){const values=item.data.crop||{left:0,right:0,top:0,bottom:0};for(const edge of ['left','right','top','bottom'])$(`crop-${edge}`).value=values[edge];}}}
 function cropImage(reset=false){const item=selected.length===1?selected[0]:null,parts=imageParts(item);if(!parts)return say('Select one image to crop.');const values=Object.fromEntries(['left','right','top','bottom'].map(edge=>[edge,reset?0:$(`crop-${edge}`).valueAsNumber]));if(Object.values(values).some(v=>!Number.isFinite(v)||v<0||v>=100)||values.left+values.right>=100||values.top+values.bottom>=100)return say('Crop values must leave some image visible.');const b=parts.raster.bounds;const box=new paper.Rectangle(b.x+b.width*values.left/100,b.y+b.height*values.top/100,b.width*(1-(values.left+values.right)/100),b.height*(1-(values.top+values.bottom)/100));let replacement=new paper.Path.Rectangle({rectangle:box,insert:false});for(const [operation,shapes] of [['subtract',item.data.cutouts||[]],['intersect',item.data.intersections||[]]])for(const saved of shapes){const cutter=paper.Base.importJSON(saved);cutter.remove();cutter.transform(parts.raster.matrix);const result=replacement[operation](cutter,{insert:false});replacement.remove();cutter.remove();replacement=result;}replacement.clipMask=true;parts.mask.replaceWith(replacement);item.data.crop=values;cropSelection=null;commit();say(reset?'Full image restored':'Image cropped');}
 $('start-crop').onclick=()=>setTool('crop');
+const originalSizeButton=document.createElement('button');originalSizeButton.id='original-pixel-size';originalSizeButton.textContent='Original pixel size';originalSizeButton.title='Restore one source pixel per document pixel';$('image-crop').append(originalSizeButton);
+function revealImageSize(bounds){
+if(!bounds||paper.view.bounds.contains(bounds))return;
+viewFitted=false;paper.view.zoom=Math.max(.02,Math.min(paper.view.zoom,(paper.view.viewSize.width-50)/Math.max(1,bounds.width),(paper.view.viewSize.height-50)/Math.max(1,bounds.height)));paper.view.center=bounds.center;refresh();
+}
+originalSizeButton.onclick=()=>{
+finish();const item=pngImageSelection(),parts=imageParts(item);if(!parts)return;
+const m=parts.raster.globalMatrix,x=Math.hypot(m.a,m.b),y=Math.hypot(m.c,m.d);
+const scale=sourcePixelScale(m);if(!Number.isFinite(scale)||scale<1e-10)return say('This image has no usable size to restore.');
+const linear=new paper.Matrix(m.a,m.b,m.c,m.d,0,0),target=new paper.Matrix(m.a/x,m.b/x,m.c/y,m.d/y,0,0),change=target.append(linear.inverted()),center=item.bounds.center;
+change.tx=center.x-change.a*center.x-change.c*center.y;change.ty=center.y-change.b*center.x-change.d*center.y;
+const parent=item.parent.globalMatrix;item.transform(parent.inverted().append(change).append(parent));
+cropSelection=null;commit();revealImageSize(item.bounds);say(`Original pixel size restored · ${parts.raster.width} × ${parts.raster.height} source pixels. Export selected objects to include the whole image.`);
+};
 const adjustButton=document.createElement('button');adjustButton.id='adjust-image';adjustButton.textContent='Adjust';adjustButton.title='Adjust image color and tone';adjustButton.setAttribute('aria-label','Adjust image');$('image-crop').append(adjustButton);
 adjustButton.onclick=installImageAdjustments({
 getImage(){
@@ -586,8 +643,20 @@ const index=session.item.index;paths.forEach((path,i)=>art.insertChild(index+i,p
 });
 $('apply-crop').onclick=()=>cropImage();$('reset-crop').onclick=()=>cropImage(true);
 function choosePNGImport(){const dialog=$('png-import-dialog');dialog.returnValue='cancel';return new Promise(resolve=>{dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true});dialog.showModal();});}
-async function insertImages(files){finish();try{const added=[];for(const file of files){if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type))throw Error('Choose a PNG, JPEG, WebP, or GIF image.');if(file.size>15e6)throw Error('Please use images smaller than 15 MB.');if(file.type==='image/png'){const svg=await readEditableSVG(file);if(svg){let imported;try{imported=parseSVG(svg);}catch{}if(imported){const choice=await choosePNGImport();if(choice==='editable'){imported.items.forEach(item=>{art.addChild(item);added.push(item);});ensureDocumentFonts();continue;}if(choice!=='image')continue;}}}const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Could not read image.'));reader.readAsDataURL(file);});const image=new Image();image.src=source;await image.decode();const raster=new paper.Raster({image,insert:false});const scale=Math.min(1,pageSize.width*.7/raster.width,pageSize.height*.7/raster.height);raster.scale(scale);const mask=new paper.Path.Rectangle({rectangle:raster.bounds,insert:false});mask.clipMask=true;const group=new paper.Group({children:[mask,raster],insert:false});group.data.image=true;group.applyMatrix=false;group.position=new paper.Point(pageSize.width/2+added.length*20,pageSize.height/2+added.length*20);art.addChild(group);added.push(group);}selected=added;setTool('select');commit();say(added.length?(added.every(imageParts)?'Image inserted. Crop controls are above the canvas.':'Inserted. Select an object to edit.'):'Import cancelled.');}catch(error){commit();say(error.message||'Could not decode image.');}}
-$('insert-image').onclick=()=>$('image-file').click();$('image-file').onchange=e=>{const files=[...e.target.files];e.target.value='';if(files.length)insertImages(files);};
+async function insertImages(files,originalPixels=false){finish();try{const added=[];for(const file of files){if(!/^image\/(png|jpeg|webp|gif)$/.test(file.type))throw Error('Choose a PNG, JPEG, WebP, or GIF image.');if(file.size>15e6)throw Error('Please use images smaller than 15 MB.');if(file.type==='image/png'){const svg=await readEditableSVG(file);if(svg){let imported;try{imported=parseSVG(svg);}catch{}if(imported){const choice=await choosePNGImport();if(choice==='editable'){imported.items.forEach(item=>{art.addChild(item);added.push(item);});ensureDocumentFonts();continue;}if(choice!=='image')continue;}}}const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(Error('Could not read image.'));reader.readAsDataURL(file);});const image=new Image();image.src=source;await image.decode();const raster=new paper.Raster({image,insert:false});const scale=originalPixels?1:Math.min(1,pageSize.width*.7/raster.width,pageSize.height*.7/raster.height);raster.scale(scale);const mask=new paper.Path.Rectangle({rectangle:raster.bounds,insert:false});mask.clipMask=true;const group=new paper.Group({children:[mask,raster],insert:false});group.data.image=true;group.applyMatrix=false;group.position=new paper.Point(pageSize.width/2+added.length*20,pageSize.height/2+added.length*20);art.addChild(group);added.push(group);}selected=added;setTool('select');commit();if(originalPixels&&added.length)revealImageSize(selectionBounds());say(added.length?(added.every(imageParts)?(originalPixels?'Image inserted at original pixel size. Export selected objects to include the whole image.':'Image inserted. Crop controls are above the canvas.'):'Inserted. Select an object to edit.'):'Import cancelled.');}catch(error){commit();say(error.message||'Could not decode image.');}}
+let imageImportOriginal=false;
+const imageImportGroup=document.createElement('div');imageImportGroup.className='image-import-button-group';$('insert-image').before(imageImportGroup);imageImportGroup.append($('insert-image'));
+const importSizeToggle=document.createElement('button');importSizeToggle.id='image-import-size-toggle';importSizeToggle.textContent='▾';importSizeToggle.title='Image import size';importSizeToggle.setAttribute('aria-label','Image import size');importSizeToggle.setAttribute('aria-expanded','false');importSizeToggle.setAttribute('aria-controls','image-import-size-menu');
+const importSizeMenu=document.createElement('div');importSizeMenu.id='image-import-size-menu';importSizeMenu.hidden=true;importSizeMenu.innerHTML='<button type="button" id="import-image-fit">Fit to page…</button><button type="button" id="import-image-original">Original pixel size…</button><small>Original pixel size uses one document pixel per source pixel.</small>';
+imageImportGroup.append(importSizeToggle,importSizeMenu);
+function closeImportSizeMenu(){importSizeMenu.hidden=true;importSizeToggle.setAttribute('aria-expanded','false');}
+function chooseImageFile(original){imageImportOriginal=original;closeImportSizeMenu();$('image-file').click();}
+$('insert-image').onclick=()=>chooseImageFile(false);
+importSizeToggle.onclick=()=>{const open=importSizeMenu.hidden;importSizeMenu.hidden=!open;importSizeToggle.setAttribute('aria-expanded',String(open));};
+$('import-image-fit').onclick=()=>chooseImageFile(false);$('import-image-original').onclick=()=>chooseImageFile(true);
+document.addEventListener('pointerdown',e=>{if(!imageImportGroup.contains(e.target))closeImportSizeMenu();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!importSizeMenu.hidden){closeImportSizeMenu();importSizeToggle.focus();}});
+$('image-file').onchange=e=>{const files=[...e.target.files],original=imageImportOriginal;imageImportOriginal=false;e.target.value='';if(files.length)insertImages(files,original);};
 
 var preserveDimensionViewUntil=0;
 paper.view.onResize=e=>{if(!viewFitted||drag||gesture||document.activeElement?.matches('input[inputmode=decimal],#dimension-controls input,#dimension-labels input,#handle-size input,#page-settings input')||Date.now()<preserveDimensionViewUntil||document.getElementById('handle-size')&&!$('handle-size').hidden){paper.view.center=paper.view.center.subtract(e.delta.divide(2*paper.view.zoom));refresh();const editor=document.getElementById('handle-size');if(editor&&!editor.hidden){editor.style.left=`${Math.max(4,Math.min(parseFloat(editor.style.left)||4,$('stage').clientWidth-editor.offsetWidth-4))}px`;editor.style.top=`${Math.max(4,Math.min(parseFloat(editor.style.top)||4,$('stage').clientHeight-editor.offsetHeight-4))}px`;}return;}fit();};fit();

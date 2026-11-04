@@ -184,6 +184,25 @@ header nav{overflow:visible}
 #file-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:50;min-width:170px;padding:6px;display:grid;gap:4px;background:white;border:1px solid #ccd8d5;border-radius:9px;box-shadow:0 6px 20px #192f3533}
 #file-menu[hidden]{display:none}
 #file-menu button{text-align:left;width:100%;font-size:14px;min-height:44px}
+.image-import-button-group{position:relative;display:flex;flex:0 0 auto;gap:0}
+.image-import-button-group>#insert-image{border-top-right-radius:0;border-bottom-right-radius:0}
+#image-import-size-toggle{border-top-left-radius:0;border-bottom-left-radius:0;border-left:0;min-width:32px;padding:6px}
+#image-import-size-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:50;width:240px;max-width:calc(100vw - 24px);padding:6px;display:grid;gap:4px;background:white;border:1px solid #ccd8d5;border-radius:9px;box-shadow:0 6px 20px #192f3533;color:#203c43}
+#image-import-size-menu button{text-align:left;width:100%;font-size:14px;min-height:44px}
+#image-import-size-menu small{padding:4px 8px;font-size:12px;line-height:1.5;color:#617973}
+#png-export-dialog{width:460px;max-width:calc(100vw - 24px)}
+#png-export-dialog label:has(#png-export-selected){display:flex;align-items:center;gap:8px;min-height:44px}
+#png-export-selected{width:20px;height:20px;flex:0 0 auto;accent-color:#267d81}
+#png-selection-help{display:block;font-size:12px;line-height:1.5;color:#617973}
+.png-size-controls{min-width:0;border:1px solid #ccd8d5;border-radius:8px;padding:12px;margin:18px 0}
+.png-size-controls legend{padding:0 6px;font-weight:600}
+.png-dimensions{display:flex;align-items:center;gap:10px}
+#png-export-dialog .png-dimensions label{display:flex;flex:1;min-width:0;flex-direction:column;align-items:stretch;gap:6px;margin:0}
+.png-dimensions input{width:100%;min-width:0;padding:9px;border:1px solid #b8cac4;border-radius:6px;min-height:44px}
+.png-size-controls small{display:block;line-height:1.5;font-size:12px;color:#617973;margin-top:10px}
+.png-size-presets{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.png-size-presets button{min-height:44px;font-size:13px;padding:8px 10px}
+@media(any-pointer:coarse){#image-import-size-toggle{min-width:44px}}
 #save{background:#c9f278;border-color:#a6d35a;color:#203c43;font-weight:700}
 #settings-dialog{width:400px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto}
 .settings-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}
