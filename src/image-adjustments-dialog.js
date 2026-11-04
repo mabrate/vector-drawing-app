@@ -6,8 +6,9 @@ export function installImageAdjustments({getImage,apply,say}){
   dialog.innerHTML=`<div class="adjust-heading"><h2 id="adjust-title">Adjust image</h2><button id="adjust-close" aria-label="Close image adjustments">×</button></div>
     <div class="adjust-layout"><section class="adjust-preview-column" aria-label="Image preview">
       <div class="adjust-preview"><canvas id="adjust-canvas" role="img" aria-label="Adjusted image preview"></canvas></div>
-      <label class="adjust-compare"><input type="checkbox" id="adjust-original"> Show original</label>
-      <small>Preview shows the full image. Existing crops stay in place. Undo restores applied changes.</small>
+      <label class="adjust-compare"><input type="checkbox" id="adjust-original"> Show original colors</label>
+      <label class="adjust-compare"><input type="checkbox" id="adjust-uncropped"> Show uncropped image</label>
+      <small>Adjustments apply to the full image. Existing crops stay in place. Undo restores applied changes.</small>
     </section><fieldset id="adjust-controls"><legend class="adjust-sr-only">Image adjustments</legend>
       <label class="adjust-mode" for="adjust-mode">Appearance<select id="adjust-mode"><option value="color">Color</option><option value="gray">Grayscale</option><option value="mono">Black &amp; white</option></select></label>
       ${slider('exposure','Exposure',-3,3,.1)}
@@ -25,7 +26,24 @@ export function installImageAdjustments({getImage,apply,say}){
   document.body.append(dialog);
   const el=id=>dialog.querySelector(`#adjust-${id}`),canvas=el('canvas'),context=canvas.getContext('2d');
   const globalKeys=['exposure','contrast','saturation','threshold'],rangeKeys=['saturation','brightness'];
-  let settings=defaultAdjustments(),session=null,source=null,original=null,worker=null,revision=0,busy=false,pending=false,applying=false,failed=false,frame=null;
+  const previewSource=document.createElement('canvas');
+  let settings=defaultAdjustments(),session=null,source=null,original=null,adjusted=null,worker=null,revision=0,busy=false,pending=false,applying=false,failed=false,frame=null;
+  function drawPreview(){
+    if(!session||!original)return;
+    const image=el('original').checked?original:adjusted||original;
+    previewSource.width=image.width;previewSource.height=image.height;
+    previewSource.getContext('2d').putImageData(image,0,0);
+    const clip=!el('uncropped').checked&&session.previewClip;
+    const bounds=clip?clip.bounds:{x:0,y:0,width:source.width,height:source.height};
+    canvas.width=Math.max(1,Math.round(bounds.width*image.width/source.width));
+    canvas.height=Math.max(1,Math.round(bounds.height*image.height/source.height));
+    context.save();
+    context.scale(canvas.width/bounds.width,canvas.height/bounds.height);
+    context.translate(-bounds.x,-bounds.y);
+    if(clip)context.clip(new Path2D(clip.path),clip.fillRule);
+    context.drawImage(previewSource,0,0,source.width,source.height);
+    context.restore();
+  }
   function sync(){
     el('mode').value=settings.mode;
     const color=settings.mode==='color';
@@ -45,7 +63,7 @@ export function installImageAdjustments({getImage,apply,say}){
   function preview(){
     revision++;
     el('status').textContent=el('original').checked?'Showing original image.':'Updating preview…';
-    if(el('original').checked)context.putImageData(original,0,0);
+    drawPreview();
     if(frame!==null)cancelAnimationFrame(frame);
     frame=requestAnimationFrame(()=>{frame=null;sendPreview();});
   }
@@ -55,12 +73,14 @@ export function installImageAdjustments({getImage,apply,say}){
   for(const key of rangeKeys)el(`range-${key}`).oninput=()=>{settings.ranges[Number(el('range').value)][key]=Number(el(`range-${key}`).value);changed();};
   el('range').onchange=sync;
   el('original').onchange=preview;
+  el('uncropped').onchange=drawPreview;
   el('reset').onclick=()=>{settings=defaultAdjustments();el('range').value='0';el('original').checked=false;changed();};
   for(const key of ['close','cancel'])el(key).onclick=()=>dialog.close();
   function fail(message){failed=true;busy=false;worker?.terminate();worker=null;el('controls').disabled=false;el('reset').disabled=false;el('original').disabled=false;applying=false;dialog.removeAttribute('aria-busy');sync();el('status').textContent=message;}
   dialog.addEventListener('close',()=>{
-    worker?.terminate();worker=null;session=source=original=null;busy=pending=applying=failed=false;
+    worker?.terminate();worker=null;session=source=original=adjusted=null;busy=pending=applying=failed=false;
     if(frame!==null)cancelAnimationFrame(frame);frame=null;canvas.width=canvas.height=1;
+    previewSource.width=previewSource.height=1;
   });
   el('apply').onclick=()=>{
     if(!session||applying||failed||!hasAdjustments(settings))return;
@@ -74,10 +94,10 @@ export function installImageAdjustments({getImage,apply,say}){
     session=getImage();if(!session)return;
     try{
       settings=defaultAdjustments();revision=0;busy=pending=applying=failed=false;
-      el('controls').disabled=false;el('reset').disabled=false;el('original').disabled=false;el('original').checked=false;el('range').value='0';dialog.removeAttribute('aria-busy');
+      el('controls').disabled=false;el('reset').disabled=false;el('original').disabled=false;el('original').checked=false;el('uncropped').checked=false;el('range').value='0';adjusted=null;dialog.removeAttribute('aria-busy');
       source=document.createElement('canvas');source.width=session.canvas.width;source.height=session.canvas.height;source.getContext('2d').drawImage(session.canvas,0,0);
-      const scale=Math.min(1,1200/Math.max(source.width,source.height));canvas.width=Math.max(1,Math.round(source.width*scale));canvas.height=Math.max(1,Math.round(source.height*scale));
-      context.drawImage(source,0,0,canvas.width,canvas.height);original=context.getImageData(0,0,canvas.width,canvas.height);
+      const scale=Math.min(1,1200/Math.max(source.width,source.height));previewSource.width=Math.max(1,Math.round(source.width*scale));previewSource.height=Math.max(1,Math.round(source.height*scale));
+      const previewContext=previewSource.getContext('2d');previewContext.drawImage(source,0,0,previewSource.width,previewSource.height);original=previewContext.getImageData(0,0,previewSource.width,previewSource.height);drawPreview();
       worker=new Worker(new URL('./image-adjustments.worker.js',import.meta.url),{type:'module'});
       worker.onerror=()=>fail('Could not prepare image adjustments. Cancel and try again.');
       worker.onmessage=({data})=>{
@@ -93,12 +113,12 @@ export function installImageAdjustments({getImage,apply,say}){
         }
         busy=false;
         if(!applying&&data.id===revision){
-          if(!el('original').checked)context.putImageData(new ImageData(data.image.data,canvas.width,canvas.height),0,0);
+          adjusted=new ImageData(data.image.data,data.image.width,data.image.height);drawPreview();
           el('status').textContent=el('original').checked?'Showing original image.':'Preview ready.';
         }
         if(pending&&!applying)sendPreview();
       };
-      const pixels=new Uint8ClampedArray(original.data);worker.postMessage({type:'init',image:{data:pixels,width:canvas.width,height:canvas.height}},[pixels.buffer]);
+      const pixels=new Uint8ClampedArray(original.data);worker.postMessage({type:'init',image:{data:pixels,width:original.width,height:original.height}},[pixels.buffer]);
       sync();el('status').textContent='Adjust the image, then choose Apply.';dialog.showModal();
     }catch{
       worker?.terminate();worker=null;session=source=original=null;say('Could not read this image. Try inserting a local image file.');

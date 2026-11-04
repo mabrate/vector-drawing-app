@@ -111,6 +111,9 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 .context .object-actions{border:0;padding-left:0;gap:0}
 .toolbar-icon-group{display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .toolbar-icon-group+.toolbar-icon-group{border-left:1px solid #d8e0dc;padding-left:9px;margin-left:9px}
+#shape-builder{border-left:1px solid #d8e0dc;padding-left:9px;margin-left:3px}
+.toolbar-icon-group button{display:flex;justify-content:center;align-items:center;min-width:34px;min-height:34px;padding:5px}
+.toolbar-icon-group svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round}
 .context>#selection-dimensions,.context>#panel-nodes,.context>#text-settings,.context>#image-crop{border-left:1px solid #d8e0dc;padding-left:10px;margin-left:2px}
 @media(max-width:700px),(max-height:500px) and (orientation:landscape){
  .mobile-toolbar-shell>.toolbar-scroll-frame{flex:1 1 0;min-width:0;width:0}

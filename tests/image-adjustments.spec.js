@@ -82,7 +82,7 @@ test('image adjustments apply at full resolution and preserve crop, rotation, re
   await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('12');await page.locator('#apply-crop').click();
   const before=await snapshot(page),beforeGroup=JSON.parse(before)[1].children[0][1],beforeRaster=rasterRecord(before);
   await page.locator('#adjust-image').click();await page.locator('#adjust-mode').selectOption('gray');await setRange(page,'exposure',.5);await ready(page);
-  expect(await page.locator('#adjust-canvas').evaluate(c=>c.width)).toBe(1200);
+  expect(await page.locator('#adjust-canvas').evaluate(c=>c.width)).toBeLessThanOrEqual(1200);
   const preview=await previewPixel(page);expect(preview[0]).toBe(preview[1]);expect(preview[1]).toBe(preview[2]);
   await page.locator('#adjust-apply').click();await expect(page.locator('#adjust-dialog')).not.toBeVisible();await expect(page.locator('#status')).toContainText('Image adjusted');
   const after=await snapshot(page),group=JSON.parse(after)[1].children[0][1],raster=rasterRecord(after),pixels=await rasterPixels(page,raster.source),sourcePixels=await rasterPixels(page,original);
@@ -102,6 +102,37 @@ test('image adjustments apply at full resolution and preserve crop, rotation, re
   const editableSVG=await readEditableSVG(new Blob([editableBytes]));expect(editableSVG).toContain('<svg');
   page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'editable-adjusted.svg',mimeType:'image/svg+xml',buffer:Buffer.from(editableSVG)});await expect(page.locator('#status')).toContainText('SVG opened');
   expect(await rasterPixels(page,rasterRecord(await snapshot(page)).source)).toEqual(pixels);
+});
+
+test('adjustment preview defaults to the crop and compares colors independently of uncropped view',async({page},testInfo)=>{
+  await insert(page);
+  await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('50');await page.locator('#apply-crop').click();
+  await page.locator('#rotate').click();await page.locator('#flip-horizontal').click();
+  const before=await snapshot(page);
+  await page.locator('#adjust-image').click();
+  const size=()=>page.locator('#adjust-canvas').evaluate(c=>[c.width,c.height]);
+  await expect(page.locator('#adjust-uncropped')).not.toBeChecked();expect(await size()).toEqual([120,120]);expect(await previewPixel(page)).toEqual([40,100,180,255]);
+  await setRange(page,'saturation',-100);await ready(page);const gray=await previewPixel(page);expect(gray[0]).toBe(gray[1]);expect(gray[1]).toBe(gray[2]);
+  await page.locator('#adjust-original').check();expect(await previewPixel(page)).toEqual([40,100,180,255]);expect(await size()).toEqual([120,120]);
+  await page.locator('#adjust-uncropped').check();expect(await size()).toEqual([240,120]);expect(await previewPixel(page)).toEqual([180,80,60,255]);
+  await page.locator('#adjust-original').uncheck();await ready(page);expect((await previewPixel(page))[0]).toBe((await previewPixel(page))[1]);
+  await page.locator('#adjust-uncropped').uncheck();expect(await size()).toEqual([120,120]);expect(await previewPixel(page)).toEqual(gray);
+  await page.screenshot({path:testInfo.outputPath('cropped-adjustment.png')});
+  await page.locator('#adjust-uncropped').check();await page.locator('#adjust-cancel').click();expect(await snapshot(page)).toBe(before);
+  await page.locator('#adjust-image').click();await expect(page.locator('#adjust-uncropped')).not.toBeChecked();expect(await size()).toEqual([120,120]);
+});
+
+test('adjustment preview follows shape clipping and cutouts rather than only crop percentages',async({page})=>{
+  await insert(page);const svg=await exportSVG(page);
+  page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'shape-crop.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg.replace('</svg>','<circle cx="528" cy="408" r="45" fill="red"/></svg>'))});
+  await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-boolean=intersect]').click();
+  await page.locator('#adjust-image').click();expect(await page.locator('#adjust-canvas').evaluate(c=>[c.width,c.height])).toEqual([90,90]);
+  expect((await previewPixel(page,0,0))[3]).toBe(0);expect((await previewPixel(page,45,45))[3]).toBe(255);
+  await setRange(page,'exposure',1);await ready(page);expect((await previewPixel(page,0,0))[3]).toBe(0);
+  await page.locator('#adjust-uncropped').check();expect(await page.locator('#adjust-canvas').evaluate(c=>[c.width,c.height])).toEqual([240,120]);expect((await previewPixel(page,30,30))[3]).toBe(255);
+  await page.locator('#adjust-cancel').click();await page.locator('#undo').click();await page.keyboard.press('Control+a');await page.locator('[data-boolean=subtract]').click();
+  await page.locator('#adjust-image').click();expect((await previewPixel(page,120,60))[3]).toBe(0);expect((await previewPixel(page,30,30))[3]).toBe(255);
+  await page.locator('#adjust-uncropped').check();expect((await previewPixel(page,120,60))[3]).toBe(255);
 });
 
 test('rapid image adjustment previews use the final settings and keep black and white alpha',async({page})=>{
