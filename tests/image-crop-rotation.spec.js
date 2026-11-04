@@ -1,3 +1,5 @@
+import {pathAction} from './helpers/path-actions.js';
+import {rotateSelection, useCropTool} from './helpers/canvas-transforms.js';
 import {test,expect} from '@playwright/test';
 test.use({launchOptions:{executablePath:'/usr/bin/google-chrome'}});
 
@@ -13,7 +15,7 @@ async function setup(page){
  await page.goto('/');
  const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=200;c.height=100;const ctx=c.getContext('2d');for(const [color,x,y] of [['red',0,0],['blue',100,0],['green',0,50],['orange',100,50]]){ctx.fillStyle=color;ctx.fillRect(x,y,100,50);}return c.toDataURL().split(',')[1];});
  await page.locator('#image-file').setInputFiles({name:'colors.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});
- await expect(page.locator('#status')).toContainText('Image inserted');for(let i=0;i<3;i++)await page.locator('#rotate').click();
+ await expect(page.locator('#status')).toContainText('Image inserted');for(let i=0;i<3;i++)await rotateSelection(page);
  return output(page);
 }
 async function projectPoint(page,xy){return page.evaluate(async xy=>{
@@ -21,7 +23,7 @@ async function projectPoint(page,xy){return page.evaluate(async xy=>{
  const p=paper.view.projectToView(new paper.Point(xy)),r=document.querySelector('#canvas').getBoundingClientRect();return {x:r.x+p.x,y:r.y+p.y};
 },xy);}
 async function dragCrop(page,polygon){
- await page.locator('#start-crop').click();const a=await projectPoint(page,polygon[0]),b=await projectPoint(page,polygon[2]);
+ await useCropTool(page);const a=await projectPoint(page,polygon[0]),b=await projectPoint(page,polygon[2]);
  await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:8});await page.mouse.up();
 }
 async function expectClipped(page,svg,original,polygon,subtract=false){
@@ -36,7 +38,7 @@ async function expectClipped(page,svg,original,polygon,subtract=false){
 
 test('drag crop stays aligned with the canvas on a rotated image and survives undo and SVG reopening',async({page})=>{
  const original=await setup(page),polygon=[[480,373],[568,373],[568,443],[480,443]];
- await page.locator('#start-crop').click();const a=await projectPoint(page,polygon[0]),b=await projectPoint(page,polygon[2]);
+ await useCropTool(page);const a=await projectPoint(page,polygon[0]),b=await projectPoint(page,polygon[2]);
  await page.mouse.move(a.x,a.y);await page.mouse.down();await page.mouse.move(b.x,b.y,{steps:8});
  const preview=await page.evaluate(async()=>{
   await new Promise(requestAnimationFrame);const {default:paper}=await import(performance.getEntriesByType('resource').find(e=>e.name.includes('/deps/paper.js')).name);
@@ -47,7 +49,7 @@ test('drag crop stays aligned with the canvas on a rotated image and survives un
  await page.locator('#canvas-undo').click();await expectClipped(page,await output(page),original,[[0,0],[1056,0],[1056,816],[0,816]]);
  await page.locator('#canvas-redo').click();await page.reload();await expectClipped(page,await output(page),original,polygon);
  await open(page,cropped);await expectClipped(page,await output(page),original,polygon);
- await page.keyboard.press('Control+a');await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
+ await page.keyboard.press('Control+a');await useCropTool(page);await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
  await expectClipped(page,await output(page),original,[[0,0],[1056,0],[1056,816],[0,816]]);
 });
 
@@ -55,7 +57,7 @@ for(const afterCrop of [false,true])for(const operation of ['intersect','subtrac
  const fullOriginal=await setup(page);let original=fullOriginal;const polygon=[[482,378],[565,395],[540,438],[515,414]];
  if(afterCrop){await dragCrop(page,[[480,373],[568,373],[568,443],[480,443]]);original=await output(page);}
  await page.locator('#snapping').evaluate(el=>el.checked=false);await page.locator('[data-tool=pen]').click();for(const xy of [...polygon,polygon[0]]){const p=await projectPoint(page,xy);await page.mouse.click(p.x,p.y);}await page.locator('[data-tool=select]').click();await page.keyboard.press('Control+a');
- await page.locator(`[data-boolean=${operation}]`).click();await expect(page.locator('#status')).toContainText(operation==='intersect'?'Image clipped':'Shape subtracted');
+ await pathAction(page,`[data-boolean=${operation}]`);await expect(page.locator('#status')).toContainText(operation==='intersect'?'Image clipped':'Shape subtracted');
  await page.screenshot({path:`/tmp/vector-lab-rotated-${operation}.png`});const cropped=await output(page);await expectClipped(page,cropped,original,polygon,operation==='subtract');
  await page.locator('#canvas-undo').click();await page.locator('#canvas-redo').click();await page.reload();await expectClipped(page,await output(page),original,polygon,operation==='subtract');
  // Rebase the crop frame after shape clipping, then save and reopen it. Reset
@@ -63,7 +65,7 @@ for(const afterCrop of [false,true])for(const operation of ['intersect','subtrac
  const rectangle=[[500,383],[548,383],[548,433],[500,433]];
  await page.locator('[data-tool=select]').click();await page.keyboard.press('Control+a');await dragCrop(page,rectangle);
  const rectangular=await output(page);await expectClipped(page,rectangular,cropped,rectangle);
- await open(page,rectangular);await page.keyboard.press('Control+a');await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
+ await open(page,rectangular);await page.keyboard.press('Control+a');await useCropTool(page);await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
  // With a prior rectangular crop, Reset restores the pixels outside that crop.
  await expectClipped(page,await output(page),fullOriginal,polygon,operation==='subtract');
 });

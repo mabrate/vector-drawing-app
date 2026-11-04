@@ -1,3 +1,4 @@
+import {pathAction} from './helpers/path-actions.js';
 import {test,expect} from '@playwright/test';
 // Sharing tests use the same touch-enabled portrait viewport as the iPad UI checks.
 test.use({hasTouch:true,isMobile:true,viewport:{width:820,height:1180}});
@@ -34,7 +35,7 @@ test.describe('iPad toolbar',()=>{
 });
 
 test('native sharing sends the named self-contained editable SVG, matching its download',async({page})=>{
- await mockSharing(page);await page.goto('/');await load(page);await page.locator('[data-boolean=unite]').click();await page.locator('#save').click();await expect(page.locator('#svg-filename')).not.toBeFocused();await page.locator('#svg-filename').fill('My Duck.svg');await page.locator('#svg-filename').press('Enter');await expect(page.locator('#export-dialog')).toBeVisible();await expect(page.locator('#share-svg')).toBeVisible();await page.locator('#share-svg').click();await expect(page.locator('#export-dialog')).toBeHidden();
+ await mockSharing(page);await page.goto('/');await load(page);await pathAction(page,'[data-boolean=unite]');await page.locator('#save').click();await expect(page.locator('#svg-filename')).not.toBeFocused();await page.locator('#svg-filename').fill('My Duck.svg');await page.locator('#svg-filename').press('Enter');await expect(page.locator('#export-dialog')).toBeVisible();await expect(page.locator('#share-svg')).toBeVisible();await page.locator('#share-svg').click();await expect(page.locator('#export-dialog')).toBeHidden();
  const [shared]=await page.evaluate(()=>window.sharedFiles);expect(shared.name).toBe('My Duck.svg');expect(shared.type).toBe('image/svg+xml');expect(shared.activation).toBe(true);expect(shared.text).toContain('vector-lab-shape-building');
  await page.locator('#save').click();await expect(page.locator('#svg-filename')).toHaveValue('My Duck');const waiting=page.waitForEvent('download');await page.locator('#download-svg').click();const file=await waiting;expect(file.suggestedFilename()).toBe(shared.name);expect(Buffer.concat(await (await file.createReadStream()).toArray()).toString()).toBe(shared.text);
 });

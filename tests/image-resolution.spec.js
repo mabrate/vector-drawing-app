@@ -1,3 +1,4 @@
+import {rotateSelection, useCropTool} from './helpers/canvas-transforms.js';
 import {test,expect} from '@playwright/test';
 import {sourcePixelScale} from '../src/image-resolution.js';
 test.use({launchOptions:{executablePath:'/usr/bin/google-chrome'}});
@@ -31,14 +32,14 @@ test('fit-to-page scan can export at source resolution without resizing the draw
 });
 
 for(const rotate of [false,true])test(`image resolution exports the visible crop including rotation (${rotate})`,async({page})=>{
- await insert(page);await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('25');await page.locator('#apply-crop').click();if(rotate)await page.locator('#rotate').click();
+ await insert(page);await useCropTool(page);await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('25');await page.locator('#apply-crop').click();if(rotate)await rotateSelection(page);
  const before=await saved(page);await openExport(page);await page.locator('#png-image-resolution').click();const bytes=await download(page);
  const a=rotate?Math.PI/12:0;expect([bytes.readUInt32BE(16),bytes.readUInt32BE(20)]).toEqual([Math.round(1800*Math.cos(a)+1600*Math.sin(a)),Math.round(1800*Math.sin(a)+1600*Math.cos(a))]);expect(await saved(page)).toBe(before);
  if(rotate){const alpha=await page.evaluate(async b64=>{const image=await createImageBitmap(await(await fetch('data:image/png;base64,'+b64)).blob()),c=document.createElement('canvas');c.width=image.width;c.height=image.height;const x=c.getContext('2d');x.drawImage(image,0,0);return x.getImageData(0,0,1,1).data[3];},bytes.toString('base64'));expect(alpha).toBe(0);}
 });
 
 test('Original pixel size keeps crop, rotation, mirroring and pixels through undo, recovery and SVG reopening',async({page})=>{
- await insert(page);await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('25');await page.locator('#apply-crop').click();await page.locator('#rotate').click();await page.locator('#flip-horizontal').click();
+ await insert(page);await useCropTool(page);await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('25');await page.locator('#apply-crop').click();await rotateSelection(page);await page.locator('#flip-horizontal').click();
  const before=await saved(page),old=await state(page);await page.locator('#original-pixel-size').click();const after=await saved(page),restored=await state(page);
  expect(restored.scaleX).toBeCloseTo(1,10);expect(restored.scaleY).toBeCloseTo(1,10);expect(restored.angle).toBeCloseTo(old.angle,10);expect(restored.det).toBeLessThan(0);expect(restored.data).toEqual(old.data);expect(restored.source).toBe(old.source);expect(restored.center[0]).toBeCloseTo(old.center[0],6);expect(restored.center[1]).toBeCloseTo(old.center[1],6);
  await page.locator('#canvas-undo').click();expect(await saved(page)).toBe(before);await page.locator('#canvas-redo').click();expect(await saved(page)).toBe(after);await page.reload();expect(await saved(page)).toBe(after);

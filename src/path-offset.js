@@ -29,7 +29,7 @@ export function offsetPath(paper,item,distance,join='round'){
 }
 
 export function installPathOffset({paper,art,getSelection,getTool,unit,unitScale,commit}){
- const button=document.createElement('button');button.id='offset-path';button.textContent='Offset path';button.hidden=true;document.querySelector('.object-actions').append(button);
+ const button=document.createElement('button');button.id='offset-path';button.textContent='Offset path';document.querySelector('.object-actions').append(button);
  const dialog=document.createElement('dialog');dialog.id='offset-dialog';dialog.setAttribute('aria-labelledby','offset-title');dialog.innerHTML='<form method="dialog"><h2 id="offset-title">Offset path</h2><label>Distance (<span id="offset-unit"></span>) <input id="offset-distance" type="number" step="any" value="0.1"></label><p>Positive expands outward; negative insets. Closed paths only.</p><label>Corners <select id="offset-join"><option value="round">Round</option><option value="miter">Miter</option><option value="square">Square</option></select></label><label><input id="offset-keep" type="checkbox"> Keep original paths</label><p id="offset-status" role="status"></p><div class="pair"><button value="cancel">Cancel</button><button id="offset-apply" type="button">Apply offset</button></div></form>';
  document.body.append(dialog);
  const $=id=>dialog.querySelector('#'+id);let originals=[],results=[],layer=null,frame=null;
@@ -57,5 +57,5 @@ export function installPathOffset({paper,art,getSelection,getTool,unit,unitScale
  };
  dialog.addEventListener('close',()=>{if(frame!==null)cancelAnimationFrame(frame);frame=null;clear();layer?.remove();layer=null;art.activate();paper.view.update();});
  dialog.querySelector('form').addEventListener('submit',e=>{if(e.submitter?.value!=='cancel'){e.preventDefault();$('offset-apply').click();}});
- return {sync(){const selected=getSelection();button.hidden=getTool()!=='select'||!selected.length||!selected.every(eligible);}};
+ return {sync(){const selected=getSelection();button.disabled=!selected.length||!selected.every(eligible);}};
 }

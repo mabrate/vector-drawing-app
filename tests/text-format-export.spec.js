@@ -1,3 +1,4 @@
+import {rotateSelection} from './helpers/canvas-transforms.js';
 import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 async function load(page,text){page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles({name:'formatting.svg',mimeType:'image/svg+xml',buffer:Buffer.from(text)});await expect(page.locator('#status')).toContainText('SVG opened');}
@@ -34,7 +35,7 @@ test('whole SVG retains the page, selected SVG contains only chosen objects and 
 });
 
 test('formatted rotated canvas text matches the outlined SVG rendering',async({page})=>{
- await fixture(page);await page.locator('#text-content').fill('AVATAR\nWave');await page.locator('#apply-text').click();for(const name of ['bold','italic','underline'])await page.locator('#text-'+name).click();await page.locator('#text-letter-spacing').fill('3');await page.locator('#text-line-spacing').fill('1.7');await page.locator('#apply-text').click();await expect.poll(async()=>(await item(page)).data.textFormat.italic).toBe(true);await page.locator('#rotate').click();const before=await ink(page);const svg=await output(page,{outline:true});await load(page,svg);const after=await ink(page);for(const edge of ['left','right','top','bottom'])expect(Math.abs(before[edge]-after[edge])).toBeLessThanOrEqual(1);expect(after.count/before.count).toBeGreaterThan(.95);expect(after.count/before.count).toBeLessThan(1.05);
+ await fixture(page);await page.locator('#text-content').fill('AVATAR\nWave');await page.locator('#apply-text').click();for(const name of ['bold','italic','underline'])await page.locator('#text-'+name).click();await page.locator('#text-letter-spacing').fill('3');await page.locator('#text-line-spacing').fill('1.7');await page.locator('#apply-text').click();await expect.poll(async()=>(await item(page)).data.textFormat.italic).toBe(true);await rotateSelection(page);const before=await ink(page);const svg=await output(page,{outline:true});await load(page,svg);const after=await ink(page);for(const edge of ['left','right','top','bottom'])expect(Math.abs(before[edge]-after[edge])).toBeLessThanOrEqual(1);expect(after.count/before.count).toBeGreaterThan(.95);expect(after.count/before.count).toBeLessThan(1.05);
 });
 
 test('fonts without italic faces use an offline slant that survives selected path export',async({page})=>{

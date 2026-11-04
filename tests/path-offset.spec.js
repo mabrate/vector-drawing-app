@@ -1,3 +1,4 @@
+import {pathAction} from './helpers/path-actions.js';
 import {test,expect} from '@playwright/test';
 import paper from 'paper';
 import {offsetPath} from '../src/path-offset.js';
@@ -18,10 +19,10 @@ test('offset changes edge distance rather than scaling, preserves holes and reje
 async function load(page,svg){page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'offset.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg)});await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');}
 async function output(page){await page.locator('#save').click();const wait=page.waitForEvent('download');await page.locator('#download-svg').click();return Buffer.concat(await(await(await wait).createReadStream()).toArray()).toString();}
 test('offset preview is reversible; applied geometry survives SVG reopen and Undo',async({page})=>{
- await page.goto('/');await load(page,'<svg xmlns="http://www.w3.org/2000/svg" width="1056" height="816"><path fill="orange" d="M100 100h200v100h-200z"/></svg>');
+ await page.addInitScript(()=>{localStorage.setItem('vector-lab-unit','in');localStorage.setItem('vector-lab-dimensions','true');});await page.goto('/');await load(page,'<svg xmlns="http://www.w3.org/2000/svg" width="1056" height="816"><path fill="orange" d="M100 100h200v100h-200z"/></svg>');
  const state=()=>page.evaluate(()=>localStorage.getItem('vector-lab'));const before=await state();
- await page.locator('#offset-path').click();await page.locator('#offset-distance').fill('-.1');await page.locator('#offset-dialog button[value=cancel]').click();expect(await state()).toBe(before);
- await page.locator('#offset-path').click();await page.locator('#offset-distance').fill('-.8');await expect(page.locator('#offset-apply')).toBeDisabled();await expect(page.locator('#offset-status')).toContainText('entire path');
+ await pathAction(page,'#offset-path');await page.locator('#offset-distance').fill('-.1');await page.locator('#offset-dialog button[value=cancel]').click();expect(await state()).toBe(before);
+ await pathAction(page,'#offset-path');await page.locator('#offset-distance').fill('-.8');await expect(page.locator('#offset-apply')).toBeDisabled();await expect(page.locator('#offset-status')).toContainText('entire path');
  await page.locator('#offset-distance').fill('0.1');await expect(page.locator('#offset-apply')).toBeEnabled();await page.locator('#offset-join').selectOption('miter');await page.locator('#offset-apply').click();await expect(page.locator('#offset-dialog')).not.toBeVisible();
  const after=await state();expect(after).not.toBe(before);await page.locator('#canvas-undo').click();expect(await state()).toBe(before);await page.locator('#canvas-redo').click();expect(await state()).toBe(after);
  const svg=await output(page);await load(page,svg);await page.locator('#units').selectOption('px',{force:true});await expect(page.locator('#dimension-width')).toHaveValue('219.2');
@@ -29,7 +30,7 @@ test('offset preview is reversible; applied geometry survives SVG reopen and Und
 test('offset copies keep originals and fit a touch-sized screen',async({page})=>{
  await page.setViewportSize({width:390,height:844});await page.goto('/');
  await load(page,'<svg xmlns="http://www.w3.org/2000/svg" width="1056" height="816"><path fill="purple" fill-rule="evenodd" d="M100 100h200v200h-200z M150 150h100v100h-100z"/></svg>');
- await page.locator('#offset-path').click();await page.locator('#offset-distance').fill('0.1');await page.locator('#offset-keep').check();
+ await pathAction(page,'#offset-path');await page.locator('#offset-distance').fill('0.1');await page.locator('#offset-keep').check();
  const bounds=await page.locator('#offset-dialog').boundingBox();expect(bounds.x).toBeGreaterThanOrEqual(0);expect(bounds.x+bounds.width).toBeLessThanOrEqual(390);expect(bounds.height).toBeLessThan(844);
  await page.screenshot({path:'/tmp/vector-lab-offset-mobile.png'});
  await page.locator('#offset-apply').click();await page.reload();

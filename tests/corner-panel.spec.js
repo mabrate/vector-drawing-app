@@ -11,12 +11,16 @@ for(const viewport of [{width:1280,height:800},{width:390,height:844}])test(`cor
  if(!await page.locator('[data-panel=align]').isVisible())await page.locator('#mobile-properties').click();
  await page.locator('[data-panel=align]').click();
  await expect(page.locator('.context #corner-controls')).toHaveCount(0);
- await page.locator('#corner-amount').fill('0.2');await page.locator('#apply-corner').click();
+ await expect(page.locator('#apply-corner,#reset-corner')).toHaveCount(0);
  const effect=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1].data.cornerEffect);
- expect((await effect()).effects[1].amount).toBeCloseTo(19.2);
- await page.locator('#corner-type').selectOption('chamfer');expect((await effect()).effects[1].type).toBe('chamfer');
- await page.locator('#reset-corner').click();
- expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1].segments)).toEqual([[100,200],[200,200],[200,300]]);
+ for(const treatment of ['fillet','chamfer']){
+  await page.locator('#corner-type').selectOption(treatment);
+  await page.locator('#corner-amount').fill('0.2');await page.locator('#corner-amount').press('Tab');
+  expect((await effect()).effects[1].type).toBe(treatment);
+  expect((await effect()).effects[1].amount).toBeCloseTo(19.2);
+  await page.locator('#corner-amount').fill('0');await page.locator('#corner-amount').press('Enter');
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].children[0][1].segments)).toEqual([[100,200],[200,200],[200,300]]);
+ }
  await page.locator('#corner-controls').scrollIntoViewIfNeeded();await page.screenshot({path:`/tmp/corner-panel-${viewport.width}.png`});
  if(await page.locator('.mobile-menu-close').first().isVisible())await page.locator('.properties .mobile-menu-close').click();
  await page.keyboard.press('s');

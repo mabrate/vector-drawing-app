@@ -101,9 +101,10 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 #dimensions-toggle{display:flex;align-items:center;justify-content:center;width:34px;min-height:34px;padding:5px;margin:0}
 #dimensions-tool svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round}
 #dimension-controls label{display:flex;align-items:center;gap:3px;font-size:11px}
-#dimension-controls input{width:60px;min-width:0;padding:5px 4px;border:1px solid #ccd8d5;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums}
+#dimension-controls input{width:44px;min-width:0;text-overflow:clip;padding:5px 4px;border:1px solid #ccd8d5;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums}
 #dimension-controls #apply-position{display:flex;align-items:center;justify-content:center;min-width:34px;min-height:34px;padding:5px;margin:0;order:1}
-@media(pointer:coarse){#dimension-controls input{width:66px;font-size:16px}}
+#dimension-controls input:focus{width:clamp(112px,14ch,180px)}
+@media(pointer:coarse){#dimension-controls input{font-size:16px}}
 
 /* Stationary scroll controls make the single toolbar row discoverable. */
 .toolbar-scroll-frame{position:relative;min-width:0;flex:0 0 auto}
@@ -116,6 +117,7 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 .toolbar-scroll-frame::after{right:0;background:linear-gradient(to left,#fff 55%,#ffffff00)}
 .toolbar-scroll-frame.can-scroll-left::before,.toolbar-scroll-frame.can-scroll-right::after{opacity:1}
 .context .stack-controls,.context .snap-dropdown,.context #page-settings,.context #dimensions-tool{border-left:1px solid #d8e0dc;padding-left:9px;margin-left:3px}
+.context>.stack-controls{flex:0 0 auto;margin-left:auto}
 .context .object-actions{border:0;padding-left:0;gap:0}
 .toolbar-icon-group{display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .toolbar-icon-group+.toolbar-icon-group{border-left:1px solid #d8e0dc;padding-left:9px;margin-left:9px}
@@ -281,3 +283,10 @@ header nav{overflow:visible}
 #browser-recovery[data-state=paused],#browser-recovery[data-state=unavailable]{background:#fff1d2;color:#69470c;border-color:#e6cb93}
 #take-over-recovery{min-height:36px;padding:5px 10px;font-size:12px;flex:0 0 auto;max-width:100%;white-space:normal}
 @media(max-width:600px){#browser-recovery{padding:6px 8px}}
+
+/* Path actions escape the scrolling toolbar and remain touch-sized. */
+#path-menu-button{white-space:nowrap;min-height:36px;padding:6px 10px;font-size:13px}
+#path-menu{position:fixed;z-index:60;width:208px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;padding:6px;display:grid;gap:3px;background:white;border:1px solid #ccd8d5;border-radius:9px;box-shadow:0 6px 20px #192f3533}
+#path-menu button{display:flex;align-items:center;gap:10px;text-align:left;width:100%;min-height:44px;padding:8px 10px;font-size:14px}
+#path-menu svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linejoin:round;flex:0 0 auto}
+#path-menu button:focus-visible{outline:2px solid #267d81;outline-offset:-2px}

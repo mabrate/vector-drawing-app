@@ -76,9 +76,9 @@ export function rebuildCorners(paper,path,model){
  path.applyMatrix=false;path.removeSegments();path.addSegments(segments);path.data.nodeModes=map.map((i,index)=>info[i]?(info[i].effect.type==='fillet'?'round':'corner'):(model.modes?.[i]||'corner'));model.map=map;model.geometry=path.pathData;model.matrix=path.globalMatrix.values;path.data.cornerEffect=model;
 }
 export function installCornerControls({paper,getNodes,getSelection,setSelection,commit,refresh,say,getTool=()=>'nodes',getUnit=()=>'px',getUnitScale=()=>1}){
- const controls=document.createElement('div');controls.id='corner-controls';controls.innerHTML='<h2>Corner treatment</h2><label>Type <select id="corner-type"><option value="fillet">Fillet</option><option value="chamfer">Chamfer</option></select></label><label><span id="corner-amount-label">Radius (px)</span> <input id="corner-amount" type="number" min="0" max="100000" step="1" value="10"></label><input id="corner-slider" aria-label="Corner amount" type="range" min="0" max="100" step="0.5" value="10"><button id="apply-corner">Apply corner</button><button id="reset-corner">Restore sharp corner</button><small id="corner-help">Select sharp corners between lines or curves. Chamfers require straight lines. Purple rings mark treated corners. Select either tangent node to edit an existing corner.</small>';
+ const controls=document.createElement('div');controls.id='corner-controls';controls.innerHTML='<h2>Corner treatment</h2><label>Type <select id="corner-type"><option value="fillet">Fillet</option><option value="chamfer">Chamfer</option></select></label><label><span id="corner-amount-label">Radius (px)</span> <input id="corner-amount" type="number" min="0" max="100000" step="1" value="10"></label><input id="corner-slider" aria-label="Corner amount" type="range" min="0" max="100" step="0.5" value="10"><small id="corner-help">Select sharp corners between lines or curves. Chamfers require straight lines. Purple rings mark treated corners. Select either tangent node to edit an existing corner. Set the amount to 0 to restore the sharp corner.</small>';
  controls.title='Select sharp corners between lines or curves. Chamfers require straight lines. Select either tangent node to edit an existing corner. Direct node edits turn treatments into ordinary paths.';document.getElementById('panel-align').append(controls);
- const type=controls.querySelector('#corner-type'),amount=controls.querySelector('#corner-amount'),slider=controls.querySelector('#corner-slider'),apply=controls.querySelector('#apply-corner'),reset=controls.querySelector('#reset-corner');
+ const type=controls.querySelector('#corner-type'),amount=controls.querySelector('#corner-amount'),slider=controls.querySelector('#corner-slider');
  function targets(treatment=type.value){const paths=new Map();return getNodes().filter(s=>{if(!paths.has(s.path)){const model=cornerModel(s.path);paths.set(s.path,{model,source:model?.source||sourceFor(s.path)});}const {model,source}=paths.get(s.path);return eligible(source,model?model.map[s.index]:s.index,s.path.closed,treatment);});}
  let displayedScale=1;
  const display=value=>Number(value.toFixed(8));
@@ -87,7 +87,7 @@ export function installCornerControls({paper,getNodes,getSelection,setSelection,
   if(controls.hidden||document.getElementById('panel-align').hidden)return;
   const scale=getUnitScale(),changed=scale!==displayedScale;
   if(changed){amount.value=display(Number(amount.value)*displayedScale/scale);displayedScale=scale;}
-  const nodes=targets();apply.disabled=slider.disabled=amount.disabled=!nodes.length;type.disabled=!targets('fillet').length;reset.disabled=!targets('fillet').length;
+  const nodes=targets();slider.disabled=amount.disabled=!nodes.length;type.disabled=!targets('fillet').length;
   const s=nodes[0],m=s&&cornerModel(s.path),effect=m?.effects[m.map[s.index]];
   if(effect&&(changed||![amount,slider,type].includes(document.activeElement))){type.value=effect.type;amount.value=display(effect.amount/scale);}
   amount.max=display(100000/scale);amount.step='any';slider.max=Math.max(100/scale,effect?effect.amount/scale:0,Number(amount.value)||0);slider.step=0.5/scale;slider.value=amount.value;
@@ -111,6 +111,6 @@ export function installCornerControls({paper,getNodes,getSelection,setSelection,
   }catch(error){say(error.message);return;}finally{prepared.forEach(({copy})=>copy.remove());}
   setSelection(getSelection(),next);if(save)commit();else refresh();say(value?'Corner updated. Remaining lines and curves keep their shape.':'Sharp corner restored.');
  }
- apply.onclick=()=>update(Number(amount.value)*getUnitScale());amount.onchange=()=>update(Number(amount.value)*getUnitScale());slider.oninput=()=>{amount.value=slider.value;update(Number(slider.value)*getUnitScale(),false);};slider.onchange=()=>commit();type.onchange=()=>{if(targets().some(s=>cornerModel(s.path)))update(Number(amount.value)*getUnitScale());sync();};reset.onclick=()=>update(0);
+ amount.onchange=()=>update(amount.valueAsNumber*getUnitScale());amount.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();amount.blur();}};slider.oninput=()=>{amount.value=slider.value;update(Number(slider.value)*getUnitScale(),false);};slider.onchange=()=>commit();type.onchange=()=>{if(targets().some(s=>cornerModel(s.path)))update(Number(amount.value)*getUnitScale());sync();};
  return {sync};
 }

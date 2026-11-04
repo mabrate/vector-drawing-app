@@ -1,3 +1,5 @@
+import {pathAction} from './helpers/path-actions.js';
+import {rotateSelection, useCropTool} from './helpers/canvas-transforms.js';
 import {test,expect} from '@playwright/test';
 import {adjustImage,defaultAdjustments} from '../src/image-adjustments.js';
 import {readEditableSVG} from '../src/editable-png.js';
@@ -78,8 +80,8 @@ test('adjust image previews original, remembers each range, and cancels without 
 
 test('image adjustments apply at full resolution and preserve crop, rotation, recovery and exports',async({page})=>{
   const original=await insert(page,1600,400);
-  await page.locator('#rotate').click();await page.locator('#flip-horizontal').click();
-  await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('12');await page.locator('#apply-crop').click();
+  await rotateSelection(page);await page.locator('#flip-horizontal').click();
+  await useCropTool(page);await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('12');await page.locator('#apply-crop').click();
   const before=await snapshot(page),beforeGroup=JSON.parse(before)[1].children[0][1],beforeRaster=rasterRecord(before);
   await page.locator('#adjust-image').click();await page.locator('#adjust-mode').selectOption('gray');await setRange(page,'exposure',.5);await ready(page);
   expect(await page.locator('#adjust-canvas').evaluate(c=>c.width)).toBeLessThanOrEqual(1200);
@@ -106,8 +108,8 @@ test('image adjustments apply at full resolution and preserve crop, rotation, re
 
 test('adjustment preview defaults to the crop and compares colors independently of uncropped view',async({page},testInfo)=>{
   await insert(page);
-  await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('50');await page.locator('#apply-crop').click();
-  await page.locator('#rotate').click();await page.locator('#flip-horizontal').click();
+  await useCropTool(page);await page.locator('#image-crop summary').click();await page.locator('#crop-left').fill('50');await page.locator('#apply-crop').click();
+  await rotateSelection(page);await page.locator('#flip-horizontal').click();
   const before=await snapshot(page);
   await page.locator('#adjust-image').click();
   const size=()=>page.locator('#adjust-canvas').evaluate(c=>[c.width,c.height]);
@@ -125,12 +127,12 @@ test('adjustment preview defaults to the crop and compares colors independently 
 test('adjustment preview follows shape clipping and cutouts rather than only crop percentages',async({page})=>{
   await insert(page);const svg=await exportSVG(page);
   page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'shape-crop.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg.replace('</svg>','<circle cx="528" cy="408" r="45" fill="red"/></svg>'))});
-  await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await page.locator('[data-boolean=intersect]').click();
+  await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');await pathAction(page,'[data-boolean=intersect]');
   await page.locator('#adjust-image').click();expect(await page.locator('#adjust-canvas').evaluate(c=>[c.width,c.height])).toEqual([90,90]);
   expect((await previewPixel(page,0,0))[3]).toBe(0);expect((await previewPixel(page,45,45))[3]).toBe(255);
   await setRange(page,'exposure',1);await ready(page);expect((await previewPixel(page,0,0))[3]).toBe(0);
   await page.locator('#adjust-uncropped').check();expect(await page.locator('#adjust-canvas').evaluate(c=>[c.width,c.height])).toEqual([240,120]);expect((await previewPixel(page,30,30))[3]).toBe(255);
-  await page.locator('#adjust-cancel').click();await page.locator('#canvas-undo').click();await page.keyboard.press('Control+a');await page.locator('[data-boolean=subtract]').click();
+  await page.locator('#adjust-cancel').click();await page.locator('#canvas-undo').click();await page.keyboard.press('Control+a');await pathAction(page,'[data-boolean=subtract]');
   await page.locator('#adjust-image').click();expect((await previewPixel(page,120,60))[3]).toBe(0);expect((await previewPixel(page,30,30))[3]).toBe(255);
   await page.locator('#adjust-uncropped').check();expect((await previewPixel(page,120,60))[3]).toBe(255);
 });

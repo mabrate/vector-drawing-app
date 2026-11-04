@@ -1,3 +1,4 @@
+import {rotateSelection, useCropTool} from './helpers/canvas-transforms.js';
 import {test,expect,chromium} from '@playwright/test';
 import {alphaBounds} from '../src/alpha-bounds.js';
 
@@ -15,7 +16,7 @@ test('background removal crops edges without moving rotated artwork and supports
  const page=await browser.newPage();await page.goto('/');
  const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=200;c.height=100;const ctx=c.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,200,100);ctx.fillStyle='red';ctx.fillRect(60,20,80,60);return c.toDataURL().split(',')[1];});
  await page.locator('#image-file').setInputFiles({name:'subject.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});await expect(page.locator('#status')).toContainText('Image inserted');
- await page.locator('#rotate').click();
+ await rotateSelection(page);
  const snapshot=()=>page.evaluate(()=>localStorage.getItem('vector-lab'));
  const before=await snapshot(),original=JSON.parse(before)[1].children[0][1];
  async function output(){await page.locator('#save').click();await expect(page.locator('#download-svg')).toBeEnabled();const downloading=page.waitForEvent('download');await page.locator('#download-svg').click();return Buffer.concat(await(await(await downloading).createReadStream()).toArray()).toString();}
@@ -28,7 +29,7 @@ test('background removal crops edges without moving rotated artwork and supports
  await page.locator('#canvas-undo').click();expect(await snapshot()).toBe(before);
  await page.locator('#canvas-redo').click();await page.reload();expect(JSON.parse(await snapshot())[1].children[0][1].data.crop).toEqual(item.data.crop);
  page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'cropped.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg)});await expect(page.locator('#status')).toContainText('SVG opened');expect(await ink(await output())).toEqual(originalInk);
- await page.keyboard.press('Control+a');await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
+ await page.keyboard.press('Control+a');await useCropTool(page);await page.locator('#image-crop summary').click();await page.locator('#reset-crop').click();
  await expect(page.locator('#crop-left')).toHaveValue('0');expect(await ink(await output())).toEqual(originalInk);
  }finally{await browser.close();}
 });
