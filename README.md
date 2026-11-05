@@ -25,7 +25,7 @@ Push this project to a GitHub repository with a `main` branch. In **Settings →
 - Pinch to zoom; two fingers pan. Pan and Fit buttons also work without gestures.
 - **File → Download editable PNG** saves a normal transparent PNG with editable artwork inside. **Insert image** offers **Editable shapes**, **Regular image**, or **Cancel** when that artwork is readable. Missing, damaged, or newer unsupported editing data falls back to a regular image. Other image tools may strip the editing data.
 - The PNG uses a `VectorLab` tEXt chunk containing JSON with format `vector-lab.editable-png`, version `1`, and a base64 UTF-8 SVG. The reader validates the chunk checksum, size, envelope, and existing SVG import rules before offering editable import.
-- Save SVG downloads editable vector paths. Open SVG replaces the drawing after confirmation.
+- Save SVG downloads editable vector paths. Open SVG replaces the drawing after confirmation and switches to Select. Use Insert image to add SVGs to an existing drawing.
 - Refresh to test browser-local recovery. Download SVG before leaving a shared device. New clears the recovered drawing but can be undone during the session.
 
 ## Validation
@@ -109,7 +109,7 @@ The top-toolbar **Units** picker controls dimensions, X/Y positions, stroke widt
 
 ## Alignment reference, tool hints, and transparency
 
-With multiple objects selected, alignment keeps the **last-selected shape fixed** and moves the others to its edges or center. The reference has a thicker green selection outline. A single selected object aligns to the artboard. For box selection or Select all, the last object in drawing order is the reference.
+With multiple objects selected, alignment keeps the **last-selected shape fixed** and moves the others to its edges or center. The reference has a thicker green selection outline. A single selected object aligns to the artboard. For box selection or Select all, the last object in drawing order is the reference. Releasing a selection box keeps the objects or nodes highlighted in its last drag preview, including on touch devices.
 
 The active tool's instructions appear in a green strip below the top toolbar, matching the green active-tool button. Click **Snap ▾** for the enable switch and edge/center/node options; click outside or press Escape to close the dropdown.
 
@@ -124,7 +124,7 @@ The top toolbar opens **Fill and Outline**, **Align and Distribute**, and **Dime
 
 Alignment defaults to **Visible edges**, including centered stroke thickness and joins. Choose **Paths** for geometric bounds. Single shapes align to the page; multiple shapes align to the last selected. Distribution requires three shapes and offers equal horizontal/vertical gaps and equally spaced left/right/top/bottom edges or centers. Outer objects stay fixed; a crowded span can result in negative gaps (overlap).
 
-The Nodes tool opens its settings automatically. Click an anchor, Shift-click or enable the **Select multiple** icon to add anchors, or drag empty space to box-select anchors on selected paths. Cmd/Ctrl+A selects all anchors on those paths. Selected nodes are larger, bright pink squares with dark outlines. Dragging selected anchors moves them together; arrow keys nudge them in the page units. Anchors, curve handles, hit testing, and node selection boxes follow the transformed path geometry, including rotated/scaled paths and compound paths, at any zoom.
+The Nodes tool opens its settings automatically. Click an anchor, Shift-click or enable the **Select multiple** icon to add anchors, or drag empty space to box-select anchors on selected paths. Grouped artwork must be ungrouped before editing its anchors. Cmd/Ctrl+A selects all anchors on those paths. Selected nodes are larger, bright pink squares with dark outlines. Dragging selected anchors moves them together; arrow keys nudge them in the page units. Anchors, curve handles, hit testing, and node selection boxes follow the transformed path geometry, including rotated/scaled paths and compound paths, at any zoom.
 
 Object stacking controls and the ruler are hidden in Nodes mode and return when another tool is selected. The **Select multiple** icon is shared by Select and Nodes: it adds shapes in Select mode, and adds both paths and individual nodes in Nodes mode.
 
@@ -138,9 +138,11 @@ Double-click/double-tap cycles through these corner stages and back to round. No
 
 ### Images and cropping
 
-Use **Insert image** for PNG, JPEG, WebP, or GIF files, or paste an image from the clipboard while the canvas has focus. Images are embedded in saved SVGs; no upload or external image URL is required. Animated images use a still frame.
+Use **Insert image** for SVG, PNG, JPEG, WebP, or GIF files, or paste an image from the clipboard while the canvas has focus. Images are embedded in saved SVGs; no upload or external image URL is required. Animated images use a still frame.
 
-Images fit to the page by default while retaining their source pixels. Use the arrow beside **Insert image** to choose **Original pixel size** before selecting files, or select an existing image and choose **Original pixel size** beside its crop controls. This restores one document pixel per source pixel while keeping the crop, rotation, and mirroring. Undo restores the previous placement. Large images may extend beyond the artboard: export selected objects to include the whole image, or use **Settings → Fit canvas to content**. Original pixel size refers to pixels, not the scan's printed dimensions or DPI.
+SVGs insert as editable groups, so each imported drawing moves and resizes together. Select several SVGs at once to combine them in the current project without changing the artboard. Use **Ungroup** to edit their individual shapes and nodes. SVGs fit to the page by default; the **Original pixel size** import option retains their document dimensions. Inserted SVGs support Undo, browser recovery, and SVG save/open.
+
+Raster images fit to the page by default while retaining their source pixels. Use the arrow beside **Insert image** to choose **Original pixel size** before selecting files, or select an existing image and choose **Original pixel size** beside its crop controls. This restores one document pixel per source pixel while keeping the crop, rotation, and mirroring. Undo restores the previous placement. Large images may extend beyond the artboard: export selected objects to include the whole image, or use **Settings → Fit canvas to content**. Original pixel size refers to pixels, not the scan's printed dimensions or DPI.
 
 Select one image and choose **Crop** in the left toolbar. Drag a rectangle over the image to keep that area; release to apply. Dragging works in either direction; the crop rectangle stays aligned with the canvas even when the image is rotated. **Reset crop** restores the complete image. Exact edge percentages and Reset crop appear in the top toolbar while the Crop tool is active. Cropping is nondestructive: original pixels remain embedded, including cropped areas. Cropping, image placement, copying, and sizing support undo and browser recovery. Files are limited to 15 MB each; SVG imports to 30 MB. Large images can exceed browser-local recovery storage, so keep SVG copies.
 
