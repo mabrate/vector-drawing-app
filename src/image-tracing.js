@@ -1,5 +1,6 @@
 import {subjectSelection,outlineSelection} from './trace-subject.js';
 import {prepareContour,fitContour} from './trace-curves.js';
+import {traceColorOptions,colorVector,createColorDistance,createColorMatcher} from './trace-colors.js';
 // Browser-independent tracing: color reduction, four-connected contour following,
 // shared-boundary simplification and curve fitting. Output is filled, closed paths.
 export const TRACE_PRESETS={
@@ -8,7 +9,7 @@ export const TRACE_PRESETS={
   detailed:{label:'Detailed',resolution:768,tolerance:.35,maxNodes:5000,maxContours:500}
 };
 
-function colorPalette(data,width,height,count,ignoreWhite){
+function colorPalette(data,width,height,count,ignoreWhite,grouping,anchors){
   const bins=new Map(),interiors=new Map();let eligible=0,flat=0;
   for(let i=0;i<data.length;i+=4){
     const alpha=data[i+3]/255;if(alpha<.5)continue;
@@ -24,11 +25,12 @@ function colorPalette(data,width,height,count,ignoreWhite){
   // stable interior samples when enough exist, with a full-image fallback for
   // texture or tiny images that do not have reliable flat interiors.
   const samples=[...(flat>=eligible*.2&&interiors.size?interiors:bins).values()].map(b=>({rgb:b.rgb.map(v=>v/b.count),count:b.count}));
-  if(!samples.length)return [];
+  if(!samples.length)return anchors.map(rgb=>[...rgb]);
   samples.sort((a,b)=>b.count-a.count);
-  const centers=[samples[0].rgb.slice()],weights=[samples[0].count];
-  const distance=(a,b)=>a.reduce((sum,v,c)=>sum+(v-b[c])**2,0);
-  while(centers.length<Math.min(count,samples.length)){
+  const centers=anchors.map(rgb=>[...rgb]),weights=anchors.map(()=>Infinity);
+  if(!centers.length){centers.push(samples[0].rgb.slice());weights.push(samples[0].count);}
+  const distance=createColorDistance(grouping);
+  while(centers.length<Math.min(count,samples.length+anchors.length)){
     let best=null,score=0;
     for(const sample of samples){const distances=centers.map(center=>distance(center,sample.rgb)),nearest=Math.min(...distances),index=distances.indexOf(nearest);
       // Do not spend palette slots on rare, near-identical shades created by
@@ -39,19 +41,24 @@ function colorPalette(data,width,height,count,ignoreWhite){
     if(!best||score<1)break;centers.push(best.rgb.slice());weights.push(best.count);
   }
   for(let iteration=0;iteration<8;iteration++){
-    const sums=centers.map(()=>({rgb:[0,0,0],count:0}));
-    for(const sample of samples){let index=0,best=Infinity;centers.forEach((center,i)=>{const d=distance(center,sample.rgb);if(d<best){best=d;index=i;}});const sum=sums[index];sum.count+=sample.count;for(let c=0;c<3;c++)sum.rgb[c]+=sample.rgb[c]*sample.count;}
-    sums.forEach((sum,i)=>{if(sum.count)centers[i]=sum.rgb.map(v=>v/sum.count);});
+    const sums=centers.map(()=>({rgb:[0,0,0],count:0,samples:[]}));
+    for(const sample of samples){let index=0,best=Infinity;centers.forEach((center,i)=>{const d=distance(center,sample.rgb);if(d<best){best=d;index=i;}});const sum=sums[index];sum.count+=sample.count;if(grouping==='value'||grouping==='saturation')sum.samples.push(sample);for(let c=0;c<3;c++)sum.rgb[c]+=sample.rgb[c]*sample.count;}
+    sums.forEach((sum,i)=>{
+      if(i<anchors.length||!sum.count)return;
+      if(sum.samples.length){const mean=sum.samples.reduce((n,s)=>n+colorVector(s.rgb,grouping)[0]*s.count,0)/sum.count;centers[i]=sum.samples.reduce((best,s)=>Math.abs(colorVector(s.rgb,grouping)[0]-mean)<Math.abs(colorVector(best.rgb,grouping)[0]-mean)?s:best).rgb.slice();}
+      else centers[i]=sum.rgb.map(v=>v/sum.count);
+    });
   }
   // Use the dominant source bin in each cluster, keeping flat logo colors
   // intact instead of tinting them with resampled edge/background pixels.
   const dominant=centers.map(()=>null);
   for(const sample of samples){let index=0,best=Infinity;centers.forEach((center,i)=>{const d=distance(center,sample.rgb);if(d<best){best=d;index=i;}});if(!dominant[index]||sample.count>dominant[index].count)dominant[index]=sample;}
-  const colors=centers.map((rgb,i)=>({rgb:(dominant[i]?.rgb||rgb).map(Math.round),count:dominant[i]?.count||0}));
-  return colors.filter((color,i)=>!colors.some((other,j)=>j!==i&&other.count>color.count*4&&distance(color.rgb,other.rgb)<3*12**2)).map(color=>color.rgb);
+  const colors=centers.map((rgb,i)=>({rgb:(i<anchors.length?rgb:dominant[i]?.rgb||rgb).map(Math.round),count:dominant[i]?.count||0}));
+  return colors.filter((color,i)=>i<anchors.length||!colors.some((other,j)=>j!==i&&other.count>color.count*4&&distance(color.rgb,other.rgb)<3*12**2)).map(color=>color.rgb);
 }
 
-function cleanColorEdges(labels,data,width,height,amount){
+function cleanColorEdges(labels,data,width,height,amount,grouping){
+  const colorDistance=createColorDistance(grouping);
   if(amount<=0)return;
   const stable=new Uint8Array(labels.length),original=labels.slice(),radius=Math.max(2,Math.ceil(amount/25)+1);
   for(let y=1;y<height-1;y++)for(let x=1;x<width-1;x++){
@@ -67,7 +74,7 @@ function cleanColorEdges(labels,data,width,height,amount){
     let best=Infinity;
     for(let yy=Math.max(0,y-radius);yy<=Math.min(height-1,y+radius);yy++)for(let xx=Math.max(0,x-radius);xx<=Math.min(width-1,x+radius);xx++){
       const j=yy*width+xx;if(!stable[j]||original[j]<0)continue;
-      let distance=0;for(let c=0;c<3;c++)distance+=(data[i*4+c]-data[j*4+c])**2;
+      const distance=colorDistance([data[i*4],data[i*4+1],data[i*4+2]],[data[j*4],data[j*4+1],data[j*4+2]]);
       if(distance<best){best=distance;labels[i]=original[j];}
     }
   }
@@ -183,12 +190,12 @@ function pixelArt({data,width,height,overrides},settings){
     const i=y*w+x;for(let c=0;c<3;c++)pixels[i*4+c]=alpha?Math.round(sum[c]/alpha):0;
     pixels[i*4+3]=Math.round(alpha/count*255);marks[i]=exclude>count/2?2:include>count/2?1:0;
   }
-  const count=[2,4,8,12,16].includes(Number(settings.colors))?Number(settings.colors):4;
-  const palette=colorPalette(pixels,w,h,count,settings.ignoreWhite!==false),labels=new Int8Array(w*h).fill(-1);
+  const {count,grouping,anchors}=traceColorOptions(settings);
+  const palette=colorPalette(pixels,w,h,count,settings.ignoreWhite!==false,grouping,anchors),match=createColorMatcher(palette,grouping),labels=new Int8Array(w*h).fill(-1);
   for(let i=0;i<labels.length;i++){
     const rgb=Array.from(pixels.slice(i*4,i*4+3));
     if(marks[i]===2||pixels[i*4+3]<128||(marks[i]!==1&&settings.ignoreWhite!==false&&Math.min(...rgb)>=245))continue;
-    let best=Infinity;palette.forEach((color,index)=>{const distance=color.reduce((n,v,c)=>n+(v-rgb[c])**2,0);if(distance<best){best=distance;labels[i]=index;}});
+    labels[i]=match(rgb);
   }
   let contourCount=0;
   const shapes=palette.map((rgb,index)=>{
@@ -210,9 +217,9 @@ export function traceImage({data,width,height,overrides},settings={}){
   if(settings.mode==='pixel')return pixelArt({data,width,height,overrides},settings);
   const preset=TRACE_PRESETS[settings.preset]||TRACE_PRESETS.simple,mode=['color','silhouette','outline'].includes(settings.mode)?settings.mode:'mono';
   const threshold=Math.max(0,Math.min(255,Number(settings.threshold??128))),invert=!!settings.invert,ignoreWhite=settings.ignoreWhite!==false;
-  const colorCount=[2,4,8,12,16].includes(Number(settings.colors))?Number(settings.colors):4;
+  const {count:colorCount,grouping,anchors}=mode==='color'?traceColorOptions(settings):{count:1,grouping:'rgb',anchors:[]};
   const smoothing=Math.max(0,Math.min(100,Number(settings.smoothing??70)));
-  const palette=mode!=='color'?[[0,0,0]]:colorPalette(data,width,height,colorCount,ignoreWhite),labels=new Int8Array(width*height);labels.fill(-1);
+  const palette=mode!=='color'?[[0,0,0]]:colorPalette(data,width,height,colorCount,ignoreWhite,grouping,anchors),match=createColorMatcher(palette,grouping),labels=new Int8Array(width*height);labels.fill(-1);
   const subject=mode==='silhouette'||mode==='outline'||mode==='mono'?subjectSelection(data,width,height,Number(settings.backgroundTolerance??20)):null;
   for(let i=0;i<labels.length;i++){
     if(mode==='silhouette'||mode==='outline'){if(subject.mask[i])labels[i]=0;continue;}
@@ -220,22 +227,23 @@ export function traceImage({data,width,height,overrides},settings={}){
     const rgb=[0,1,2].map(c=>data[p+c]*alpha+255*(1-alpha));
     if(mode==='mono'){const light=rgb[0]*.2126+rgb[1]*.7152+rgb[2]*.0722;if(invert?light>=threshold:light<=threshold)labels[i]=0;}
     else if(palette.length&&!(ignoreWhite&&Math.min(...rgb)>=245)){
-      let best=Infinity;palette.forEach((color,index)=>{const d=rgb.reduce((sum,v,c)=>sum+(v-color[c])**2,0);if(d<best){best=d;labels[i]=index;}});
+      labels[i]=match(rgb);
     }
   }
-  if(mode==='color')cleanColorEdges(labels,data,width,height,smoothing);
+  if(mode==='color')cleanColorEdges(labels,data,width,height,smoothing,grouping);
   // Noise size is normalized to the image area, independent of preview resolution.
   const noise=Math.max(0,Math.min(100,Number(settings.noise??12))),minArea=noise===0?0:Math.max(2,Math.round(width*height*noise/100000));
   let removed=removeSpecks(labels,width,height,minArea),contourCount=0,correctedPixels=0;
   if(overrides&&overrides.length!==labels.length)throw Error('Trace corrections do not match the image.');
   if(overrides?.some(value=>value===1)&&!palette.length)palette.push([0,0,0]);
+  const correctionMatch=createColorMatcher(palette,grouping);
   function applyCorrections(){
     if(!overrides)return;
     for(let i=0;i<labels.length;i++){
       if(overrides[i]===2)labels[i]=-1;
       else if(overrides[i]===1){
         if(mode!=='color')labels[i]=0;
-        else{let best=Infinity;palette.forEach((color,index)=>{const d=color.reduce((sum,v,c)=>sum+(v-data[i*4+c])**2,0);if(d<best){best=d;labels[i]=index;}});}
+        else{const alpha=data[i*4+3]/255;labels[i]=correctionMatch([0,1,2].map(c=>data[i*4+c]*alpha+255*(1-alpha)));}
       }
     }
   }

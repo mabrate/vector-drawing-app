@@ -223,9 +223,20 @@ Green marks show inclusions and pink marks show exclusions on the source preview
 
 **Edge smoothing** defaults to 70%. It softens pixel stair steps and fits editable Bézier curves while retaining sharp corners. Shared color boundaries are fitted together so adjoining colors meet. The preview and applied/exported paths use the same curve geometry, and curve anchors still count toward the existing node limits.
 
-For a flat illustration with 5–10 colors, start with **Colors**, a maximum of **8** or **12** colors, and smoothing around **70%**. The palette prefers stable color regions and consolidates rare near-identical edge shades instead of turning antialiasing into extra color bands. Edge cleanup also avoids assigning blended border pixels to unrelated palette colors. Small color flecks are replaced with their surrounding region rather than cut out as holes.
+For a flat illustration with 5–10 colors, start with **Colors**, enter the maximum number of colors you need (any whole number from **1 to 64**), and set smoothing around **70%**. The palette prefers stable color regions and consolidates rare near-identical edge shades instead of turning antialiasing into extra color bands. Edge cleanup also avoids assigning blended border pixels to unrelated palette colors. Small color flecks are replaced with their surrounding region rather than cut out as holes.
 
 Lower smoothing to retain tiny angular details; **0%** keeps straight-line tracing. Higher Detail increases the sampling resolution and node budget; it is separate from edge smoothing. Original SVG artwork can also be opened directly with **Open SVG**, avoiding raster tracing entirely.
+
+**Group colors by** controls how pixels are matched to the palette:
+
+- **RGB** keeps the original color-distance behavior.
+- **Hue** emphasizes the color family and reduces shading differences, while treating black/gray/white separately from chromatic colors. This helps keep dark red with red rather than brown, and shaded blue with blue.
+- **Value** groups by HSV brightness. Different hues with similar brightness can merge.
+- **Saturation** groups by color intensity. Different hues with similar saturation can merge.
+
+Use **Sample colors from original** to tap the main paint colors on the original preview, including while zoomed. Samples become fixed **color anchors**; remaining palette slots are chosen automatically. Sample two brown shades to retain both, or use exactly as many colors as anchors to control the entire palette. Remove an anchor with its swatch button or choose **Clear anchors**. Sampling white turns off **Leave white empty** so the selected white can be traced. Transparent pixels stay empty. Anchors apply to the current image session and clear when the dialog closes; the color count and grouping preference persist. **Reset defaults** also clears anchors.
+
+For shaded cartoon artwork, try **Hue**, roughly **7–8 colors**, and anchors for red, blue, white, black, yellow, skin, and the browns you want to retain. Turn off **Stack colors to hide seams** when the paths need separate boundaries. These are color-based controls: similarly colored objects can still share a palette color, and the tracer cannot infer every human-recognizable object boundary.
 
 ### Group and ungroup objects
 

@@ -1,6 +1,7 @@
 import {toolPreferences} from './tool-preferences.js';
 import {TRACE_PRESETS,tracePathData} from './image-tracing.js';
 import {createTraceRefinement} from './trace-refinement.js';
+import {TRACE_COLOR_LIMIT} from './trace-colors.js';
 
 export function installImageTracing({getImage,apply,say}){
   const dialog=document.createElement('dialog');dialog.id='trace-dialog';dialog.setAttribute('aria-labelledby','trace-title');
@@ -13,13 +14,15 @@ export function installImageTracing({getImage,apply,say}){
     <label id="trace-pixel-control" hidden>Pixels on longest side<select id="trace-pixel"><option>16</option><option>24</option><option selected>32</option><option>48</option><option>64</option><option>128</option></select></label>
     <label id="trace-preset-control">Detail / complexity<select id="trace-preset"><option value="simple">Simple · 1,000</option><option value="balanced">Balanced · 2,000</option><option value="detailed">Detailed · 5,000</option></select></label>
     <label id="trace-threshold-control">Darkness threshold<div class="trace-range"><input id="trace-threshold" type="range" min="0" max="255" value="128"><output id="trace-threshold-value">50%</output></div></label>
-    <label id="trace-colors-control" hidden>Maximum colors<select id="trace-colors"><option value="2">2 colors</option><option value="4" selected>4 colors</option><option value="8">8 colors</option><option value="12">12 colors</option><option value="16">16 colors</option></select></label>
+    <label id="trace-colors-control" hidden>Maximum colors (1–64)<input id="trace-colors" type="number" min="1" max="64" step="1" value="4" inputmode="numeric"></label>
+    <label id="trace-grouping-control" hidden>Group colors by<select id="trace-grouping"><option value="rgb">RGB · original color distance</option><option value="hue">Hue · reduce shading differences</option><option value="value">Value · brightness</option><option value="saturation">Saturation · color intensity</option></select></label>
     <label id="trace-background-control" hidden>Background tolerance<div class="trace-range"><input id="trace-background" type="range" min="0" max="100" value="20"><output id="trace-background-value">20%</output></div></label>
     <label id="trace-outline-control" hidden>Outline width<div class="trace-range"><input id="trace-outline" type="range" min="0.5" max="5" step="0.25" value="1.5"><output id="trace-outline-value">1.5%</output></div></label>
     <label id="trace-smoothing-control" title="Low values preserve pixel detail. High values remove small bumps and fit broader curves while protecting corners.">Edge smoothing<div class="trace-range"><input id="trace-smoothing" type="range" min="0" max="100" value="70"><output id="trace-smoothing-value">70%</output></div></label>
     <label id="trace-noise-control">Remove small specks<div class="trace-range"><input id="trace-noise" type="range" min="0" max="100" value="12"><output id="trace-noise-value">12</output></div></label>
   </div>
   <div class="trace-options"><label id="trace-invert-control"><input id="trace-invert" type="checkbox"> Trace light areas instead</label><label id="trace-white-control" hidden><input id="trace-white" type="checkbox" checked> Leave white empty</label><label id="trace-holes-control"><input id="trace-holes" type="checkbox"> Fill enclosed holes</label><label id="trace-stack-control" hidden title="Overlap color layers to prevent pale seams. Turn off for separate color regions."><input id="trace-stack" type="checkbox" checked> Stack colors to hide seams</label><button id="trace-use-silhouette" hidden>Try solid silhouette</button><button id="trace-reset">Reset defaults</button></div>
+  <fieldset id="trace-anchors-control" class="trace-anchors" hidden><legend>Color anchors</legend><div class="trace-anchor-actions"><button id="trace-sample-color" type="button" aria-pressed="false">Sample colors from original</button><button id="trace-clear-colors" type="button" disabled>Clear anchors</button><span id="trace-anchor-count">0 anchors</span></div><div id="trace-anchors" aria-label="Sampled color anchors"></div><small id="trace-anchor-help">Sample the main colors on the original preview. Anchors stay fixed; remaining colors are chosen automatically. Sample two browns to keep them separate. Grouping follows colors, not object outlines.</small></fieldset>
   <fieldset class="trace-refinement"><legend>Touch up the trace</legend><div class="trace-refinement-controls"><label>Tool <select id="trace-brush-mode"><option value="view">View only</option><option value="include">Include brush</option><option value="exclude">Exclude brush</option><option value="spot">Remove spot</option><option value="erase">Erase marks</option></select></label><label>Brush size <input id="trace-brush-size" type="range" min="2" max="100" value="20"><output id="trace-brush-size-value">20 px</output></label><button id="trace-edit-undo" disabled>Undo edit</button><button id="trace-edit-clear" disabled>Clear marks</button></div><small>Paint on either preview. Green includes missing parts; pink excludes shadows. Remove spot deletes a connected traced shape. Use a brush for shadows attached to the subject.</small></fieldset>
   <div class="trace-zoom"><span>Preview zoom</span><button id="trace-zoom-out" aria-label="Zoom trace out">−</button><output id="trace-zoom-value">100%</output><button id="trace-zoom-in" aria-label="Zoom trace in">+</button><button id="trace-zoom-fit">Fit</button><small>Drag to pan with View only. Scroll over a preview to zoom.</small></div>
   <div class="trace-previews"><figure><figcaption>Visible image</figcaption><div class="trace-preview"><canvas id="trace-original" tabindex="0" aria-label="Original image preview"></canvas></div></figure><figure><figcaption>Vector paths</figcaption><div class="trace-preview" id="trace-result" tabindex="0" role="img" aria-label="Traced path preview"></div></figure></div>
@@ -27,9 +30,10 @@ export function installImageTracing({getImage,apply,say}){
   <div class="trace-footer"><span>Replaces the image. Undo restores it.</span><button id="trace-cancel">Cancel</button><button id="trace-apply" class="primary" disabled>Convert to paths</button></div>`;
   document.body.append(dialog);
   const el=name=>dialog.querySelector(`#trace-${name}`),originalCanvas=el('original');
-  const preferences=toolPreferences('vector-lab-trace-settings',Object.fromEntries(['mode','pixel','pixel-sizing','block','preset','colors','threshold','noise','invert','white','holes','smoothing','background','outline','stack','brush-mode','brush-size'].map(name=>[name,el(name)])));
+  const preferences=toolPreferences('vector-lab-trace-settings',Object.fromEntries(['mode','pixel','pixel-sizing','block','preset','colors','grouping','threshold','noise','invert','white','holes','smoothing','background','outline','stack','brush-mode','brush-size'].map(name=>[name,el(name)])));
   dialog.addEventListener('input',event=>{if(event.target.matches('input,select'))preferences.save();});
   let session=null,result=null,worker=null,timer=null,revision=0,refinement=null,stroke=null,editHistory=[],presetChosen=false;
+  let anchors=[],sampling=false;
   let zoom=1,center={x:.5,y:.5},pan=null;
   const previews=[originalCanvas.parentElement,el('result')];
   function previewSize(viewport){
@@ -56,7 +60,7 @@ export function installImageTracing({getImage,apply,say}){
   for(const viewport of previews){
     viewport.addEventListener('wheel',e=>{e.preventDefault();setZoom(zoom*Math.exp(-e.deltaY*.002),viewport,{x:e.clientX,y:e.clientY});},{passive:false});
     viewport.addEventListener('pointerdown',e=>{
-      if(!session||stroke||pan||e.button!==0||el('brush-mode').value!=='view'||zoom<=1)return;
+      if(!session||stroke||pan||e.button!==0||el('brush-mode').value!=='view'||sampling||zoom<=1)return;
       e.preventDefault();viewport.setPointerCapture(e.pointerId);pan={id:e.pointerId,x:e.clientX,y:e.clientY,center:{...center},size:previewSize(viewport)};viewport.classList.add('trace-panning');
     });
     viewport.addEventListener('pointermove',e=>{if(pan?.id!==e.pointerId)return;center={x:Math.max(0,Math.min(1,pan.center.x-(e.clientX-pan.x)/pan.size.width)),y:Math.max(0,Math.min(1,pan.center.y-(e.clientY-pan.y)/pan.size.height))};updateZoom();});
@@ -65,11 +69,12 @@ export function installImageTracing({getImage,apply,say}){
   }
   new ResizeObserver(updateZoom).observe(previews[0]);
   function stop(){clearTimeout(timer);timer=null;worker?.terminate();worker=null;}
-  function settings(){return {pixelSizing:el('pixel-sizing').value,blockSize:Number(el('block').value),artworkWidth:session.artworkWidth,artworkHeight:session.artworkHeight,pixelSize:Number(el('pixel').value),mode:el('mode').value,preset:el('preset').value,colors:Number(el('colors').value),threshold:Number(el('threshold').value),noise:Number(el('noise').value),invert:el('invert').checked,ignoreWhite:el('white').checked,fillHoles:el('holes').checked,smoothing:Number(el('smoothing').value),backgroundTolerance:Number(el('background').value),outlineWidth:Number(el('outline').value),stackColors:el('stack').checked};}
+  function settings(){return {pixelSizing:el('pixel-sizing').value,blockSize:Number(el('block').value),artworkWidth:session.artworkWidth,artworkHeight:session.artworkHeight,pixelSize:Number(el('pixel').value),mode:el('mode').value,preset:el('preset').value,colors:Number(el('colors').value),colorGrouping:el('grouping').value,colorAnchors:anchors.map(rgb=>[...rgb]),threshold:Number(el('threshold').value),noise:Number(el('noise').value),invert:el('invert').checked,ignoreWhite:el('white').checked,fillHoles:el('holes').checked,smoothing:Number(el('smoothing').value),backgroundTolerance:Number(el('background').value),outlineWidth:Number(el('outline').value),stackColors:el('stack').checked};}
   function controls(){
     const mode=el('mode').value,pixel=mode==='pixel',color=mode==='color'||pixel,subject=mode==='silhouette'||mode==='outline',preset=TRACE_PRESETS[el('preset').value];
+    if(!color&&sampling){sampling=false;updateBrush();}
     el('pixel-sizing-control').hidden=!pixel;el('block-control').hidden=!pixel||el('pixel-sizing').value!=='block';el('pixel-control').hidden=!pixel||el('pixel-sizing').value==='block';for(const name of ['preset-control','smoothing-control','noise-control'])el(name).hidden=pixel;
-    for(const name of ['colors-control','white-control'])el(name).hidden=!color;
+    for(const name of ['colors-control','white-control','grouping-control','anchors-control'])el(name).hidden=!color;
     for(const name of ['threshold-control','invert-control'])el(name).hidden=mode!=='mono';el('stack-control').hidden=mode!=='color';el('holes-control').hidden=color;el('background-control').hidden=!subject;el('outline-control').hidden=mode!=='outline';el('background-value').textContent=el('background').value+'%';el('outline-value').textContent=el('outline').value+'%';
     el('threshold-value').textContent=Math.round(Number(el('threshold').value)/255*100)+'%';el('noise-value').textContent=el('noise').value;el('smoothing-value').textContent=el('smoothing').value+'%';
     el('help').textContent=pixel?'Set images to their intended game size before tracing. Use the same block size for matching pixels across assets. Resizing afterward also resizes the blocks. Transparent margins are skipped. Each grid cell becomes a crisp, editable rectangle. Fewer pixels and colors give a chunkier look without changing the artwork’s size. White can be left empty; transparent areas stay empty.':`${preset.label} uses our limits of ${preset.maxNodes.toLocaleString()} nodes and ${preset.maxContours} outlines. Closed paths include real holes, with no background rectangle or outline stroke. ${color?'Stacked colors hide seams; turn stacking off for separate regions. Balanced or Detailed retains more small color details.':subject?'Transparent images use their visible shape. For opaque images, the background must be plain. Use Include/Exclude to correct the subject.':'Black and white selects dark pixels. Try Solid silhouette if a light-colored subject is incomplete.'}`;
@@ -97,8 +102,9 @@ export function installImageTracing({getImage,apply,say}){
   }
   function updateBrush(){
     const mode=el('brush-mode').value,size=Number(el('brush-size').value);el('brush-size-value').textContent=size+' px';el('brush-size').disabled=mode==='view'||mode==='spot';
-    let cursor=mode==='view'?'default':'crosshair';
-    if(mode!=='view'&&mode!=='spot'){
+    let cursor=sampling?'crosshair':mode==='view'?'default':'crosshair';
+    el('sample-color').setAttribute('aria-pressed',String(sampling));el('sample-color').textContent=sampling?'Done sampling':'Sample colors from original';
+    if(!sampling&&mode!=='view'&&mode!=='spot'){
       const width=size+4,center=width/2,color=mode==='include'?'#26aa5a':mode==='exclude'?'#ed286e':'#267d81',svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${width}"><circle cx="${center}" cy="${center}" r="${size/2}" fill="none" stroke="white" stroke-width="3"/><circle cx="${center}" cy="${center}" r="${size/2}" fill="none" stroke="${color}"/></svg>`;
       cursor=`url("data:image/svg+xml,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;
     }
@@ -107,6 +113,26 @@ export function installImageTracing({getImage,apply,say}){
   function rememberEdit(){editHistory.push(refinement.mask.slice());if(editHistory.length>12)editHistory.shift();}
   function previewBounds(surface){return surface===originalCanvas?originalCanvas.getBoundingClientRect():el('result').querySelector('svg')?.getBoundingClientRect();}
   function brushPoint(e,bounds){return {x:Math.max(0,Math.min(session.image.width-1,(e.clientX-bounds.left)*session.image.width/bounds.width)),y:Math.max(0,Math.min(session.image.height-1,(e.clientY-bounds.top)*session.image.height/bounds.height))};}
+  function renderAnchors(){
+    el('anchors').replaceChildren();el('anchor-count').textContent=`${anchors.length} anchor${anchors.length===1?'':'s'}`;el('clear-colors').disabled=!anchors.length;
+    anchors.forEach((rgb,index)=>{const hex='#'+rgb.map(v=>v.toString(16).padStart(2,'0')).join(''),button=document.createElement('button'),dot=document.createElement('span');
+      button.type='button';button.setAttribute('aria-label',`Remove anchor ${hex}`);dot.style.backgroundColor=hex;dot.className='trace-anchor-swatch';button.append(dot,document.createTextNode(hex+' ×'));
+      button.onclick=()=>{anchors.splice(index,1);renderAnchors();schedule();};el('anchors').append(button);
+    });
+  }
+  function sampleColor(e){
+    const bounds=originalCanvas.getBoundingClientRect();if(e.clientX<bounds.left||e.clientX>bounds.right||e.clientY<bounds.top||e.clientY>bounds.bottom)return;
+    e.preventDefault();const p=brushPoint(e,bounds),index=(Math.floor(p.y)*session.image.width+Math.floor(p.x))*4,data=session.image.data,alpha=data[index+3]/255;
+    if(alpha<.5){el('status').textContent='Choose a visible part of the original image; transparency is left empty.';return;}
+    const rgb=[0,1,2].map(c=>Math.round(data[index+c]*alpha+255*(1-alpha)));
+    if(anchors.some(a=>a.every((v,i)=>v===rgb[i]))){el('status').textContent='That color is already an anchor. Sample another shade or choose Done sampling.';return;}
+    if(anchors.length>=TRACE_COLOR_LIMIT){el('status').textContent='Remove an anchor before sampling another color.';return;}
+    anchors.push(rgb);if(!Number.isInteger(Number(el('colors').value))||Number(el('colors').value)<anchors.length)el('colors').value=String(anchors.length);
+    if(Math.min(...rgb)>=245)el('white').checked=false;
+    preferences.save();renderAnchors();schedule();
+  }
+  el('sample-color').onclick=()=>{sampling=!sampling;if(sampling){el('brush-mode').value='view';preferences.save();}updateBrush();};
+  el('clear-colors').onclick=()=>{anchors=[];renderAnchors();schedule();};
   function paint(p){
     const previous=stroke.last||p,steps=Math.max(1,Math.ceil(Math.hypot(p.x-previous.x,p.y-previous.y)/Math.max(1,stroke.radius/2)));
     for(let i=1;i<=steps;i++)refinement.brush(previous.x+(p.x-previous.x)*i/steps,previous.y+(p.y-previous.y)*i/steps,stroke.radius,stroke.value);
@@ -114,7 +140,9 @@ export function installImageTracing({getImage,apply,say}){
   }
   for(const surface of [originalCanvas,el('result')]){
     surface.addEventListener('pointerdown',e=>{
-      const mode=el('brush-mode').value;if(!session||stroke||e.button!==0||mode==='view')return;
+      const mode=el('brush-mode').value;if(!session||stroke||e.button!==0)return;
+      if(sampling){if(surface===originalCanvas)sampleColor(e);return;}
+      if(mode==='view')return;
       const bounds=previewBounds(surface);if(!bounds||e.clientX<bounds.left||e.clientX>bounds.right||e.clientY<bounds.top||e.clientY>bounds.bottom)return;
       e.preventDefault();surface.focus({preventScroll:true});const p=brushPoint(e,bounds);
       if(mode==='spot'){
@@ -129,7 +157,7 @@ export function installImageTracing({getImage,apply,say}){
     function endStroke(e){if(stroke?.id!==e.pointerId)return;if(e.type==='pointercancel')refinement.mask.set(editHistory.pop());else paint(brushPoint(e,stroke.bounds));stroke=null;renderMarks();schedule();}
     surface.addEventListener('pointerup',endStroke);surface.addEventListener('pointercancel',endStroke);
   }
-  el('brush-mode').onchange=updateBrush;el('brush-size').oninput=updateBrush;
+  el('brush-mode').onchange=()=>{sampling=false;updateBrush();};el('brush-size').oninput=updateBrush;
   function undoEdit(){if(stroke||!editHistory.length)return;refinement.mask.set(editHistory.pop());renderMarks();schedule();}
   el('edit-undo').onclick=undoEdit;el('edit-clear').onclick=()=>{if(stroke)return;rememberEdit();refinement.mask.fill(0);renderMarks();schedule();};
   dialog.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&!e.shiftKey&&!e.target.matches('input,select')){e.preventDefault();undoEdit();}});
@@ -150,11 +178,11 @@ export function installImageTracing({getImage,apply,say}){
   }
   el('preset').addEventListener('input',()=>presetChosen=true);
   el('mode').addEventListener('input',()=>{if(!presetChosen)el('preset').value=el('mode').value==='color'?'balanced':'simple';});
-  for(const name of ['mode','pixel','pixel-sizing','block','preset','colors','threshold','noise','invert','white','holes','smoothing','background','outline','stack'])el(name).addEventListener('input',schedule);
+  for(const name of ['mode','pixel','pixel-sizing','block','preset','colors','grouping','threshold','noise','invert','white','holes','smoothing','background','outline','stack'])el(name).addEventListener('input',schedule);
   el('use-silhouette').onclick=()=>{el('mode').value='silhouette';preferences.save();schedule();};
-  el('reset').onclick=()=>{if(stroke)return;preferences.reset();presetChosen=false;updateBrush();schedule();};
+  el('reset').onclick=()=>{if(stroke)return;preferences.reset();presetChosen=false;anchors=[];sampling=false;renderAnchors();updateBrush();schedule();};
   for(const name of ['close','cancel'])el(name).onclick=()=>dialog.close();
-  dialog.addEventListener('close',()=>{++revision;stop();session=result=refinement=stroke=null;editHistory=[];pan=null;originalCanvas.width=originalCanvas.height=1;el('result').replaceChildren();});
+  dialog.addEventListener('close',()=>{++revision;stop();session=result=refinement=stroke=null;anchors=[];sampling=false;editHistory=[];pan=null;originalCanvas.width=originalCanvas.height=1;el('result').replaceChildren();});
   el('apply').onclick=()=>{
     if(stroke||!session||!result||result.tooComplex||!result.shapes.length)return;
     try{apply(session,result);dialog.close();}catch(error){el('status').textContent=error.message||'Could not create paths. Try again.';el('status').classList.add('trace-error');}
@@ -163,7 +191,7 @@ export function installImageTracing({getImage,apply,say}){
     try{
       session=getImage();if(!session)return;
       originalCanvas.width=session.image.width;originalCanvas.height=session.image.height;refinement=createTraceRefinement(session.image.width,session.image.height);
-      zoom=1;center={x:.5,y:.5};presetChosen=presetChosen||preferences.hasSaved||el('preset').value!=='simple';editHistory=[];renderMarks();updateBrush();dialog.showModal();updateZoom();schedule();
+      anchors=[];sampling=false;renderAnchors();zoom=1;center={x:.5,y:.5};presetChosen=presetChosen||preferences.hasSaved||el('preset').value!=='simple';editHistory=[];renderMarks();updateBrush();dialog.showModal();updateZoom();schedule();
     }catch(error){session=null;say(error.message||'Could not read this image for tracing.');}
   };
 }
