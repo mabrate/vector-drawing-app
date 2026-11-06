@@ -171,6 +171,20 @@ Choose **Dropper** in the left toolbar. Click to sample a single point, or drag 
 
 Sampling combines visible images and vector artwork against the white artboard, including transparency as displayed. It excludes selection handles and guides, and ignores pixels outside the artboard. Results are opaque RGB colors; the circle never appears in saved artwork. A second finger cancels sampling and pans/zooms normally.
 
+### Take a photo
+
+Choose **Insert image ▾ → Take photo…**. Phones and iPads request the rear camera through the device's photo picker; availability depends on the browser. On a computer, allow camera access, frame the photo, then choose **Take photo → Use photo**. **Retake** starts another capture. If multiple cameras are available, choose one from the Camera list. **Choose photo…** opens the device picker when a camera is unavailable or permission is denied. Desktop camera preview requires HTTPS or localhost.
+
+Photos stay on the device and enter the normal embedded-image workflow, including Undo, browser recovery, SVG, PNG, and editable PNG. Native camera photos are normalized for orientation and decoded into JPEG; photos larger than 8192 pixels per side or 32 million pixels are reduced to that limit. If the browser cannot decode a camera format, choose JPEG or PNG instead. The live camera stops after capture and whenever its dialog closes. Canceling a capture leaves the drawing untouched.
+
+### Straighten an image
+
+Select one image, choose **Crop** (shortcut **C**), then **Straighten…**. In **Level image**, drag along a horizon or text baseline to make it horizontal. Choose **Vertical** for an upright edge. The angle slider and degree field provide fine control. **Trim empty edges** previews a centered crop that removes the new corners left by rotation. Existing transparency or shape cutouts remain transparent. Leveling preserves the embedded source pixels and existing image masks.
+
+For a page photographed at an angle, choose **Perspective / page corners** and drag corners 1–4 around the page, clockwise from its top left. A second preview shows the corrected rectangle. Focus a corner and use arrow keys for 1% adjustments, or Shift+arrows for 0.1%. Keep the corners in clockwise order. Perspective correction includes the visible crop and shape masks, and resamples those pixels in a local worker. It preserves the image's embedded source and original mask for **Restore original image**, including after SVG or editable PNG reopening. Restoring the original also restores its earlier crop and pixel adjustments; subsequent changes to the corrected pixels are discarded and can be recovered with Undo. Full-resolution correction supports up to 16,384 pixels per side and 32 million pixels in the source preview area; crop larger photos first.
+
+**Show original** compares with the image when the dialog opened. **Reset** clears the preview settings. **Cancel** or Escape leaves the drawing unchanged; **Apply** creates one Undo step. **Restore original image** is a separate action that restores the pre-perspective image in one Undo step. Preview lines, grids, and corner handles never appear in exports.
+
 ### Adjust image color and tone
 
 Select one image and choose **Adjust** beside the crop controls. **Appearance** offers Color, Grayscale, or Black & white with a threshold slider. Adjust Exposure (in stops), Contrast, and Saturation in the live preview. Under **Color ranges**, choose Reds, Yellows, Greens, Cyans, Blues, or Magentas, then change that range's saturation or brightness. Each range retains its own settings within the dialog. Range brightness also changes those colors' gray tones; neutral colors stay neutral.

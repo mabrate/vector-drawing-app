@@ -29,6 +29,8 @@ var fontPicker;
 import './style.css';
 import { installBackgroundRemoval } from './background-removal.js';
 import { installImageAdjustments } from './image-adjustments-dialog.js';
+import {installCamera} from './camera.js';
+import {installStraighteningEditor} from './image-straightening-editor.js';
 import { installImageTracing } from './image-tracing-dialog.js';
 import { shapeRecord, restoreShape, transformedBuild, validBuild } from './shape-building.js';
 import { groupObjects,ungroupObjects,isObjectGroup } from './object-grouping.js';
@@ -638,6 +640,7 @@ function syncCrop(){
   $('image-crop').hidden=!parts;
   const cropDetails=$('image-crop').querySelector('details');
   $('start-crop').hidden=tool!=='crop';
+  if($('straighten-image'))$('straighten-image').hidden=tool!=='crop';
   cropDetails.hidden=tool!=='crop';
   if(tool!=='crop')cropDetails.open=false;
   if(item!==cropSelection){
@@ -664,6 +667,8 @@ change.tx=center.x-change.a*center.x-change.c*center.y;change.ty=center.y-change
 const parent=item.parent.globalMatrix;item.transform(parent.inverted().append(change).append(parent));
 cropSelection=null;commit();revealImageSize(item.bounds);say(`Original pixel size restored · ${parts.raster.width} × ${parts.raster.height} source pixels. Export selected objects to include the whole image.`);
 };
+const straightenButton=document.createElement('button');straightenButton.id='straighten-image';straightenButton.textContent='Straighten…';straightenButton.hidden=tool!=='crop';$('image-crop').append(straightenButton);
+straightenButton.onclick=installStraighteningEditor({paper,imageParts,getItem(){finish();return selected.length===1?selected[0]:null;},commit(){cropSelection=null;commit();},say});
 const adjustButton=document.createElement('button');adjustButton.id='adjust-image';adjustButton.textContent='Adjust';adjustButton.title='Adjust image color and tone';adjustButton.setAttribute('aria-label','Adjust image');$('image-crop').append(adjustButton);
 adjustButton.onclick=installImageAdjustments({
 getImage(){
@@ -773,8 +778,10 @@ try{
 }
 let imageImportOriginal=false;
 const imageImportGroup=document.createElement('div');imageImportGroup.className='image-import-button-group';$('insert-image').before(imageImportGroup);imageImportGroup.append($('insert-image'));
-const importSizeToggle=document.createElement('button');importSizeToggle.id='image-import-size-toggle';importSizeToggle.textContent='▾';importSizeToggle.title='Image import size';importSizeToggle.setAttribute('aria-label','Image import size');importSizeToggle.setAttribute('aria-expanded','false');importSizeToggle.setAttribute('aria-controls','image-import-size-menu');
+const importSizeToggle=document.createElement('button');importSizeToggle.id='image-import-size-toggle';importSizeToggle.textContent='▾';importSizeToggle.title='Insert image options';importSizeToggle.setAttribute('aria-label','Insert image options');importSizeToggle.setAttribute('aria-expanded','false');importSizeToggle.setAttribute('aria-controls','image-import-size-menu');
 const importSizeMenu=document.createElement('div');importSizeMenu.id='image-import-size-menu';importSizeMenu.hidden=true;importSizeMenu.innerHTML='<button type="button" id="import-image-fit">Fit to page…</button><button type="button" id="import-image-original">Original pixel size…</button><small>Original pixel size uses one document pixel per source pixel.</small>';
+const cameraButton=document.createElement('button');cameraButton.id='insert-camera';cameraButton.type='button';cameraButton.textContent='Take photo…';importSizeMenu.prepend(cameraButton);
+const openCamera=installCamera({insert:insertImages,say});cameraButton.onclick=()=>{closeImportSizeMenu();openCamera();};
 imageImportGroup.append(importSizeToggle,importSizeMenu);
 function closeImportSizeMenu(){importSizeMenu.hidden=true;importSizeToggle.setAttribute('aria-expanded','false');}
 function chooseImageFile(original){imageImportOriginal=original;closeImportSizeMenu();$('image-file').click();}
