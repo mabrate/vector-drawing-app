@@ -11,6 +11,20 @@ npm run dev
 
 Open the printed local address on this computer. To test on an iPad on the same Wi-Fi, use this computer's LAN IP and port 5173. Local firewall/network settings must allow the connection.
 
+## Experimental 3D modeling
+
+On the `experiment/path-extrusion-3d` branch, select closed vector paths and choose **Extrude…** in the selection toolbar, or open **3D model…** in the header. All profiles use the XY drawing plane; extrusions extend along +Z. Height and starting height use the chosen units. Positive draft tapers inward and negative draft expands outward. Open paths, live text, and raster images need conversion to closed vector outlines first.
+
+For a ready-made test, use **File → Open SVG** to open [`examples/stepped-block-3d.svg`](examples/stepped-block-3d.svg), then choose **3D model…**. It contains a 3 mm base, a 15 mm raised block, and a 1 mm chamfer around their shared junction. Click the features to edit their dimensions.
+
+The feature list supports **New solid**, **Add to solid**, and **Cut from solid**. Add/cut targets an earlier solid. Add selected paths again to make a raised feature or cutting tool; set its height and operation. To bevel a junction, join the extrusions, tap the resulting edge (or use **Choose an edge**), and add a chamfer or fillet. Tap multiple edges on one body to select them together. Chamfers use equal distances on adjacent faces. Unsupported geometry or oversized treatments report an error and keep Apply disabled.
+
+Profiles are copied into the model when added; editing the 2D drawing does not automatically alter an existing extrusion. Select revised artwork, reopen the model, choose the feature, and use **Replace profile with selected paths**. Feature dimensions remain editable. Changing earlier geometry can invalidate a later edge treatment; remove that treatment and select the edge again. Removing a New solid feature also removes operations targeting it.
+
+Everything in the dialog is a preview until **Apply model**; **Cancel** discards all model edits. Apply creates one Undo step. Model recipes survive browser recovery and full editable SVG save/open. Full editable PNG embeds the SVG recipe too, but inserting SVG/PNG artwork adds only its 2D shapes. Use **Open SVG** to restore an entire model. Selected-object exports and plain/simple-path SVG carry 2D artwork only. **New** and opening another drawing replace the model along with the artwork. STL and STEP exports use millimeters; STL is a printable mesh, while STEP retains CAD solids. These exports do not include the editable feature recipe.
+
+The local CAD engine and viewer load only when opening 3D modeling. The CAD WebAssembly asset is approximately 23 MB before compression. No runtime CDN or remote modeling service is used. Dependencies and license/source notices ship under `public/licenses/`. Desktop Chrome and emulated mobile coverage do not replace real iPad/Safari testing; complex curved drafts and intersections can be rejected by the CAD kernel.
+
 ## GitHub Pages
 
 Push this project to a GitHub repository with a `main` branch. In **Settings → Pages → Build and deployment**, select **GitHub Actions**. The included workflow builds and deploys `dist/`; relative asset URLs support repository subpaths. This checkout has not been published.

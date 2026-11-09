@@ -1,0 +1,23 @@
+Vector Lab experimental 3D modeling dependencies
+
+Three.js 0.187.0 (see the installed package.json/package-lock.json for the exact
+version used by a given release), copyright its contributors. MIT license:
+three-MIT.txt. Source: https://github.com/mrdoob/three.js
+
+Replicad 1.2.1, copyright Steve Genoud and contributors. MIT license:
+replicad-MIT.txt. Source: https://github.com/sgenoud/replicad
+
+Replicad includes flatbush and flatqueue, copyright Vladimir Agafonkin,
+under the ISC license (flatbush-ISC.txt and flatqueue-ISC.txt), and opentype.js,
+copyright Frederik De Bleser and contributors, under MIT (opentype-MIT.txt).
+
+replicad-opencascadejs 1.2.1, distributed under LGPL 2.1. License:
+replicad-opencascadejs-LGPL-2.1.txt. The unmodified, separately loaded WebAssembly
+module is included in assets/replicad_single-*.wasm. Its source and build recipe:
+https://github.com/sgenoud/replicad/tree/5e4ad9bb5a35bb9ae0571e91c25fa1897ba0570c/packages/replicad-opencascadejs
+Package source: https://www.npmjs.com/package/replicad-opencascadejs/v/1.2.1
+Open CASCADE Technology source and licensing:
+https://github.com/Open-Cascade-SAS/OCCT
+
+The CAD module is dynamically loaded. You may replace or rebuild that module,
+and modify/debug this application's use of it, under the applicable licenses.
