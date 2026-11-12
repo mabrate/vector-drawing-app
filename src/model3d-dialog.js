@@ -1,4 +1,4 @@
-import {emptyModel,readModel,selectionProfiles,withoutFeature,MM_PER_PIXEL,validModel} from './model3d-data.js';
+import {emptyModel,readModel,selectionProfiles,withoutFeature,MM_PER_PIXEL,MAX_TREATMENT_EDGES,validModel} from './model3d-data.js';
 import './model3d.css';
 
 export function installModel3D({paper,getSelection,getModel,setModel,getUnit,finish,say}){
@@ -6,7 +6,7 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   dialog.innerHTML=`<div class="model3d-heading"><div><small>EXPERIMENTAL · PLANAR MODELING</small><h2 id="model3d-title">3D model</h2></div><button id="model3d-close" aria-label="Cancel 3D modeling">×</button></div>
     <div class="model3d-layout"><section class="model3d-preview-column" aria-label="Model preview">
       <div class="model3d-views" role="group" aria-label="3D views"><button data-model-view="iso">Isometric</button><button data-model-view="top">Top</button><button data-model-view="front">Front</button><button data-model-view="right">Right</button><button id="model3d-fit">Fit</button></div>
-      <div id="model3d-viewer"></div><p class="model3d-gesture-help">Drag to orbit · Right-drag or two fingers to pan/zoom · Tap edges to select</p>
+      <div id="model3d-viewer"></div><p class="model3d-gesture-help">Drag to orbit · Right-drag or two fingers to pan/zoom · Tap an edge to select its chain</p>
       <p id="model3d-summary">No solids yet.</p>
     </section><section class="model3d-controls" aria-label="Model features">
       <label class="model3d-unit">Units <select id="model3d-unit"><option value="mm">mm</option><option value="in">in</option><option value="px">px</option><option value="pt">pt</option></select></label>
@@ -23,10 +23,12 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
       </fieldset>
       <fieldset id="model3d-treatment" hidden><legend>Edge treatment</legend><label>Size <input id="model3d-treatment-size" type="number" step="any" min="0.0001"></label><small id="model3d-treatment-help"></small></fieldset>
       <fieldset id="model3d-edges"><legend>Chamfer / fillet</legend><p id="model3d-edge-count">Select an edge in the preview.</p>
-        <label>Choose an edge <select id="model3d-edge-picker"><option value="">Pick an edge…</option></select></label>
+        <label>Selection <select id="model3d-edge-mode"><option value="connected">Connected in plane</option><option value="individual">Individual edges</option></select></label>
+        <label><span id="model3d-edge-picker-label">Choose a chain</span><select id="model3d-edge-picker"><option value="">Pick a chain…</option></select></label>
+        <button id="model3d-clear-edges" disabled>Clear selection</button>
         <label>Size <input id="model3d-edge-size" type="number" step="any" value="1" min="0.0001"></label>
         <div class="model3d-pair"><button id="model3d-chamfer" disabled>Add chamfer</button><button id="model3d-fillet" disabled>Add fillet</button></div>
-        <small>Select edges on one solid. Join overlapping extrusions before treating their shared junction. Chamfers use equal distances on both faces.</small>
+        <small>One tap selects connected edges in the same plane, including curved pieces. Separate holes and other heights stay separate. Use Individual edges for one piece. Join extrusions before treating their shared junction.</small>
       </fieldset>
       <p class="model3d-storage-help">Profiles are copied from the selected paths. Edit heights here, or select revised paths and replace a feature’s profile. Save an editable SVG to keep the model.</p>
     </section></div>
@@ -47,8 +49,9 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
     $('extrusion').disabled=$('treatment').disabled=loading||exporting;
     $('apply').disabled=!ready;$('stl').disabled=$('step').disabled=!ready||!meshes.length;
     $('chamfer').disabled=$('fillet').disabled=!ready||!edges.length;
+    $('clear-edges').disabled=!edges.length;
   }
-  function onSelection(next){edges=next;$('edge-count').textContent=edges.length?`${edges.length} edge${edges.length===1?'':'s'} selected. Tap again to deselect.`:'Select an edge in the preview.';enable();}
+  function onSelection(next){edges=next;const target=$('edge-mode').value==='individual'?'edge':'chain';$('edge-count').textContent=edges.length?`${edges.length} edge${edges.length===1?'':'s'} selected. Tap the ${target} again to deselect.`:'Select an edge in the preview.';enable();}
   function updateList(){
     $('features').replaceChildren();
     for(const feature of working.features){
@@ -99,10 +102,12 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   }
   function pump(){if(inFlight||!queued||!worker)return;inFlight=queued;queued=null;worker.postMessage(inFlight);}
   function populateEdges(){
-    edgeOptions=[];$('edge-picker').replaceChildren(new Option('Pick an edge…',''));
-    for(const body of meshes){
+    const individual=$('edge-mode').value==='individual';
+    $('edge-picker-label').textContent=individual?'Choose an edge':'Choose a chain';
+    edgeOptions=[];$('edge-picker').replaceChildren(new Option(individual?'Pick an edge…':'Pick a chain…',''));
+    for(const body of viewer?.edgeChoices()||[]){
       const group=document.createElement('optgroup');group.label=body.name;
-      body.edges.edgeGroups.forEach((edge,index)=>{if(!edge.key)return;edgeOptions.push({body:body.id,key:edge.key});group.append(new Option(`Edge ${index+1}`,String(edgeOptions.length-1)));});$('edge-picker').append(group);
+      body.choices.forEach((edge,index)=>{edgeOptions.push({body:body.id,key:edge.key,chainId:edge.chainId});group.append(new Option(individual?`Edge ${index+1}`:`Chain ${index+1} (${edge.keys.length} edge${edge.keys.length===1?'':'s'})`,String(edgeOptions.length-1)));});$('edge-picker').append(group);
     }
   }
   function receive(event){
@@ -136,7 +141,7 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
     try{working=readModel(getModel());}catch(error){say(error.message);return;}
     activeId=working.features.at(-1)?.id||null;
     source=null;sourceError='';try{source=selectionProfiles(paper,getSelection());}catch(error){sourceError=error.message;}
-    unit=getUnit();$('unit').value=unit;$('edge-size').value=format(1);$('source').textContent=source?`${source.length} selected profile${source.length===1?'':'s'} ready to extrude.`:sourceError;
+    unit=getUnit();$('unit').value=unit;$('edge-size').value=format(1);$('edge-mode').value='connected';$('source').textContent=source?`${source.length} selected profile${source.length===1?'':'s'} ready to extrude.`:sourceError;
     $('add').disabled=$('replace').disabled=!source;meshes=[];edges=[];valid=false;needsFit=true;loading=true;exporting=false;updateList();showFeature();populateEdges();onSelection([]);enable();
     dialog.showModal();status('Loading the local 3D engine…');
     try{
@@ -154,10 +159,13 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   for(const id of ['name','height','start','draft','treatment-size'])$(id).addEventListener('input',controlsChanged);
   for(const id of ['operation','target'])$(id).addEventListener('change',controlsChanged);
   $('unit').onchange=()=>{unit=$('unit').value;showFeature();updateList();$('edge-size').value=format(1);if(valid)requestBuild();};
-  $('edge-picker').onchange=()=>{const edge=edgeOptions[Number($('edge-picker').value)];viewer?.setSelection($('edge-picker').value!==''&&edge?[edge]:[]);};
+  $('edge-picker').onchange=()=>{const edge=edgeOptions[Number($('edge-picker').value)];if($('edge-picker').value!==''&&edge)viewer?.selectEdge(edge);else viewer?.setSelection([]);};
+  $('edge-mode').onchange=()=>{viewer?.setEdgeMode($('edge-mode').value);populateEdges();};
+  $('clear-edges').onclick=()=>{viewer?.setSelection([]);$('edge-picker').value='';};
   for(const kind of ['chamfer','fillet'])$(kind).onclick=()=>{
     const amount=$('edge-size').valueAsNumber*unitFactors[unit];
     if(!valid||!edges.length||!Number.isFinite(amount)||amount<=0||amount>1000)return status('Enter an edge size greater than zero and no more than 1000 mm.',true);
+    if(edges.length>MAX_TREATMENT_EDGES)return status(`This selection is too complex. Select up to ${MAX_TREATMENT_EDGES} edges per treatment.`,true);
     const feature={id:crypto.randomUUID(),name:`${kind==='chamfer'?'Chamfer':'Fillet'} ${working.features.filter(feature=>feature.kind===kind).length+1}`,kind,target:edges[0].body,edges:edges.map(edge=>edge.key),amount};
     working.features.push(feature);activeId=feature.id;viewer?.setSelection([]);updateList();showFeature();schedule();
   };

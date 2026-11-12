@@ -25,8 +25,31 @@ test('extrusion preview is reversible and applies one recoverable, editable SVG 
 test('edge treatments select actual CAD edges, validate input, and stay in the modal until applied',async({page})=>{
   await load(page);await page.locator('#extrude-path').click();await ready(page);
   await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-chamfer')).toBeEnabled();await page.locator('#model3d-edge-size').fill('0.5');await page.locator('#model3d-chamfer').click();await ready(page);await expect(page.locator('#model3d-features li')).toHaveCount(2);
+  await expect(page.locator('#model3d-treatment-help')).toContainText('4 edges');
   await page.locator('#model3d-treatment-size').fill('999');await expect(page.locator('#model3d-apply')).toBeDisabled();await expect(page.locator('#model3d-status')).toHaveClass(/model3d-error/,{timeout:60000});
   await page.locator('#model3d-treatment-size').fill('0.5');await ready(page);await page.locator('#model3d-apply').click();expect((await stored(page)).features[1].kind).toBe('chamfer');
+});
+
+test.describe('connected rim picking',()=>{
+  test.use({hasTouch:true});
+  test('mouse and touch pick a whole rim, with individual selection and clear available',async({page})=>{
+    await load(page);const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
+    await page.locator('#extrude-path').click();await ready(page);await page.locator('[data-model-view=top]').click();
+    await expect(page.locator('#model3d-edge-mode')).toHaveValue('connected');await expect(page.locator('#model3d-edge-picker optgroup option')).toHaveCount(6);
+    // Top-view perspective projects the upper rim slightly larger than a slice
+    // through the model's center. Click its middle, away from corner ambiguity.
+    const canvas=await page.locator('#model3d-viewer canvas').boundingBox(),height=120*25.4/96,span=160*25.4/96;
+    const y=canvas.y+canvas.height*(.5-height/(2*(span*1.5-10*Math.tan(40*Math.PI/360)))),x=canvas.x+canvas.width/2;
+    await page.mouse.click(x,y);await expect(page.locator('#model3d-edge-count')).toContainText('4 edges selected');
+    await page.touchscreen.tap(x,y);await expect(page.locator('#model3d-edge-count')).toHaveText('Select an edge in the preview.');
+    await page.touchscreen.tap(x,y);await expect(page.locator('#model3d-edge-count')).toContainText('4 edges selected');
+    await page.locator('#model3d-edge-mode').selectOption('individual');await expect(page.locator('#model3d-edge-picker optgroup option')).toHaveCount(12);
+    await page.mouse.click(x,y);await expect(page.locator('#model3d-edge-count')).toContainText('1 edge selected');
+    await page.locator('#model3d-clear-edges').click();await expect(page.locator('#model3d-chamfer')).toBeDisabled();
+    await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-edge-count')).toContainText('1 edge selected');
+    await page.locator('#model3d-edge-mode').selectOption('connected');await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-edge-count')).toContainText('4 edges selected');
+    await page.screenshot({path:'/tmp/vector-lab-connected-edge-selection.png'});await page.locator('#model3d-cancel').click();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
+  });
 });
 
 test('mobile modeling fits the viewport and new drawings clear the model with undo',async({page})=>{

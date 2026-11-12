@@ -1,17 +1,19 @@
 import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {createEdgeSelectionIndex,edgeSelectionGroup,edgeSelectionChoices} from './model3d-edge-selection.js';
 
 export function createModelViewer(container,onSelection){
   const scene=new THREE.Scene();scene.background=new THREE.Color('#edf2ef');
   const camera=new THREE.PerspectiveCamera(40,1,.01,100000);camera.up.set(0,0,1);
   const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-  renderer.domElement.setAttribute('aria-label','3D model. Drag to orbit; use two fingers or the right mouse button to pan and zoom. Click an edge to select it.');
+  renderer.domElement.setAttribute('aria-label','3D model. Drag to orbit; use two fingers or the right mouse button to pan and zoom. Click an edge to select its connected chain in the same plane.');
   renderer.domElement.setAttribute('role','img');renderer.domElement.tabIndex=0;container.append(renderer.domElement);
   const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=false;
   const group=new THREE.Group();scene.add(group);
   scene.add(new THREE.HemisphereLight(0xffffff,0x6b7c79,2.8));
   const light=new THREE.DirectionalLight(0xffffff,2.6);light.position.set(-100,-150,250);scene.add(light);
-  let grid=null,meshes=[],selection=[],span=100,disposed=false;
+  let grid=null,meshes=[],selection=[],span=100,disposed=false,individualEdges=false;
+  const edgeIndexes=new Map();
   const colors=['#398b87','#c78248','#7477ab','#7b9e4c','#bd6a7e'];
   function render(){if(!disposed)renderer.render(scene,camera);}
   function disposeObject(object){object.traverse(child=>{child.geometry?.dispose();if(child.material)for(const material of [].concat(child.material))material.dispose();});}
@@ -31,7 +33,8 @@ export function createModelViewer(container,onSelection){
     camera.near=Math.max(.001,distance/10000);camera.far=Math.max(1000,distance*100);camera.updateProjectionMatrix();controls.update();render();
   }
   function setMeshes(next,fit=false){
-    meshes=next;for(const child of [...group.children]){disposeObject(child);group.remove(child);}
+    meshes=next;edgeIndexes.clear();for(const body of next)edgeIndexes.set(body.id,createEdgeSelectionIndex(body.edges));
+    for(const child of [...group.children]){disposeObject(child);group.remove(child);}
     next.forEach((body,index)=>{
       const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(body.mesh.vertices,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(body.mesh.normals,3));geometry.setIndex(body.mesh.triangles);
       const material=new THREE.MeshStandardMaterial({color:colors[index%colors.length],roughness:.55,metalness:.05,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});
@@ -49,6 +52,14 @@ export function createModelViewer(container,onSelection){
     setSelection(selection);if(fit)view();else render();
   }
   controls.addEventListener('change',render);
+  function selectEdge(item,{toggle=false,normal=null}={}){
+    const index=edgeIndexes.get(item?.body),chain=index&&(index.groups.get(item.chainId)||edgeSelectionGroup(index,item.key,{individual:individualEdges,normal}));
+    if(!chain){setSelection([]);return;}
+    const picked=chain.keys.map(key=>({body:item.body,key}));
+    if(!toggle){setSelection(picked);return;}
+    const next=selection.filter(entry=>entry.body===item.body),keys=new Set(chain.keys),selected=new Set(next.map(entry=>entry.key));
+    setSelection(chain.keys.every(key=>selected.has(key))?next.filter(entry=>!keys.has(entry.key)):[...next,...picked.filter(entry=>!selected.has(entry.key))]);
+  }
   let down;const pointers=new Set();
   renderer.domElement.addEventListener('pointerdown',event=>{pointers.add(event.pointerId);down=pointers.size===1?{x:event.clientX,y:event.clientY,id:event.pointerId}:null;});
   renderer.domElement.addEventListener('pointerup',event=>{
@@ -61,10 +72,9 @@ export function createModelViewer(container,onSelection){
     const hit=hits.find(hit=>hit.object.userData.edge&&(!surface||hit.distance<=surface.distance+ray.params.Line.threshold*2));
     if(!hit){setSelection([]);return;}
     const item={body:hit.object.userData.body,key:hit.object.userData.edge};
-    const next=selection.filter(entry=>entry.body===item.body),exists=next.some(entry=>entry.key===item.key);
-    setSelection(exists?next.filter(entry=>entry.key!==item.key):[...next,item]);
+    selectEdge(item,{toggle:true,normal:surface?.face?.normal.toArray()});
   });
   renderer.domElement.addEventListener('pointercancel',event=>{pointers.delete(event.pointerId);down=null;});
   resize();view();
-  return {setMeshes,setSelection,view,resize,dispose(){disposed=true;observer.disconnect();controls.dispose();disposeObject(group);if(grid)disposeObject(grid);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
+  return {setMeshes,setSelection,selectEdge,setEdgeMode(mode){individualEdges=mode==='individual';setSelection([]);},edgeChoices(){return meshes.map(body=>({id:body.id,name:body.name,choices:edgeSelectionChoices(edgeIndexes.get(body.id),{individual:individualEdges})}));},view,resize,dispose(){disposed=true;observer.disconnect();controls.dispose();disposeObject(group);if(grid)disposeObject(grid);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
 }

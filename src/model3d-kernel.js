@@ -84,9 +84,42 @@ export function disposeBodies(bodies){for(const {shape} of bodies.values())shape
 export function modelMeshes(bodies){
   return [...bodies.values()].map(body=>{
     const mesh=body.shape.mesh({tolerance:.05,angularTolerance:.15});
-    const edgeMesh=body.shape.meshEdges({tolerance:.05,angularTolerance:.15}),signatures=new Map();
-    for(const edge of body.shape.edges){try{signatures.set(edge.hashCode,edgeSignature(edge));}finally{edge.delete();}}
-    return {id:body.id,name:body.name,mesh,edges:{...edgeMesh,edgeGroups:edgeMesh.edgeGroups.map(group=>({...group,key:signatures.get(group.edgeId)}))},volume:cad.measureVolume(body.shape)};
+    const edgeMesh=body.shape.meshEdges({tolerance:.05,angularTolerance:.15}),topology=new Map(),planes=[],planeKeys=new Map();
+    function planeIdFor(normal,offset){
+      const key=[...normal.map(value=>Number(value.toFixed(8))),Number(offset.toFixed(5))].join(',');
+      if(!planeKeys.has(key)){planeKeys.set(key,planes.length);planes.push({normal,offset});}
+      return planeKeys.get(key);
+    }
+    for(const edge of body.shape.edges){
+      try{
+        const start=edge.startPoint,end=edge.endPoint;
+        try{
+          const data={key:edgeSignature(edge),endpoints:[start.toTuple(),end.toTuple()],planeIds:[]};
+          // A rim left by a bevel may border only curved/sloped faces. Exact
+          // curve bounds still identify level planes without relying on an
+          // adjacent flat face or on a few display-mesh sample points.
+          const box=edge.boundingBox;
+          try{const [min,max]=box.bounds;for(let axis=0;axis<3;axis++)if(max[axis]-min[axis]<1e-6){const normal=[0,0,0];normal[axis]=1;data.planeIds.push(planeIdFor(normal,(min[axis]+max[axis])/2));}}
+          finally{box.delete();}
+          topology.set(edge.hashCode,data);
+        }
+        finally{start.delete();end.delete();}
+      }finally{edge.delete();}
+    }
+    for(const face of body.shape.faces){
+      try{
+        if(face.geomType!=='PLANE')continue;
+        const normal=face.normalAt(),center=face.center;
+        let planeId;
+        try{
+          const direction=normal.toTuple(),sign=direction.find(value=>Math.abs(value)>1e-9)<0?-1:1;
+          const canonical=direction.map(value=>value*sign),point=center.toTuple(),offset=canonical.reduce((sum,value,i)=>sum+value*point[i],0);
+          planeId=planeIdFor(canonical,offset);
+        }finally{normal.delete();center.delete();}
+        for(const edge of face.edges){try{const data=topology.get(edge.hashCode);if(data&&!data.planeIds.includes(planeId))data.planeIds.push(planeId);}finally{edge.delete();}}
+      }finally{face.delete();}
+    }
+    return {id:body.id,name:body.name,mesh,edges:{...edgeMesh,planes,edgeGroups:edgeMesh.edgeGroups.map(group=>({...group,...topology.get(group.edgeId)}))},volume:cad.measureVolume(body.shape)};
   });
 }
 
