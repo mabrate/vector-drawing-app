@@ -13,6 +13,27 @@ export function edgeSignature(edge){
   return `${edge.geomType}:${Number(edge.length.toFixed(5))}:${forward<reverse?forward:reverse}`;
 }
 
+// Paper/SVG circles are four cubic quarter arcs. Recognize that construction,
+// including rotated/reversed paths, rather than fitting arbitrary curved art.
+// DraftAngle cannot taper their spline extrusion surfaces; circular lofts give
+// OpenCascade actual conical walls while the editable recipe stays untouched.
+function circularLoop(curves){
+  if(curves.length!==4)return null;
+  const center=[0,1].map(axis=>curves.reduce((sum,curve)=>sum+curve[0][axis],0)/4);
+  const radial=curves.map(curve=>curve[0].map((value,axis)=>value-center[axis]));
+  const radius=Math.hypot(...radial[0]),tolerance=Math.max(1e-7,radius*1e-7),kappa=4*(Math.sqrt(2)-1)/3;
+  if(radius<=tolerance)return null;
+  const sign=Math.sign(radial[0][0]*radial[1][1]-radial[0][1]*radial[1][0]);
+  const near=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1])<=tolerance;
+  for(let i=0;i<4;i++){
+    const [start,c1,c2,end]=curves[i],a=radial[i],b=radial[(i+1)%4];
+    if(!near(b,[-sign*a[1],sign*a[0]])||!near(end,curves[(i+1)%4][0])||
+      !near(c1,[start[0]-sign*kappa*a[1],start[1]+sign*kappa*a[0]])||
+      !near(c2,[end[0]+sign*kappa*b[1],end[1]-sign*kappa*b[0]]))return null;
+  }
+  return {center,radius};
+}
+
 function profileSolid(feature){
   const garbage=new Set();const keep=value=>{garbage.add(value);return value;};
   const wire=curves=>{
@@ -23,11 +44,34 @@ function profileSolid(feature){
     });
     return keep(cad.assembleWire(pieces));
   };
+  const extrude=(face,angle)=>{
+    const solid=keep(cad.basicFaceExtrusion(face,keep(new cad.Vector([0,0,feature.height]))));
+    return angle?keep(solid.draft(angle,f=>f.not(f=>f.inPlane('XY',0)).not(f=>f.inPlane('XY',feature.height)))):solid;
+  };
   try{
     const solids=feature.profile.map(profile=>{
-      const face=keep(cad.makeFace(wire(profile.outer),profile.holes.map(wire)));
-      let solid=keep(cad.basicFaceExtrusion(face,keep(new cad.Vector([0,0,feature.height]))));
-      if(feature.draft)solid=keep(solid.draft(feature.draft,f=>f.not(f=>f.inPlane('XY',0)).not(f=>f.inPlane('XY',feature.height))));
+      const loops=[profile.outer,...profile.holes],circles=feature.draft?loops.map(circularLoop):[];
+      let solid;
+      if(circles.some(Boolean)){
+        const offset=feature.height*Math.tan(feature.draft*Math.PI/180);
+        if(circles[0])for(const circle of circles.slice(1))if(circle&&
+          Math.hypot(...circle.center.map((value,i)=>value-circles[0].center[i]))+circle.radius+offset>=circles[0].radius-offset)
+          throw Error('The draft closes the wall around a circular hole before the top. Reduce the draft angle or height.');
+        const drafted=loops.map((curves,index)=>{
+          const angle=index?-feature.draft:feature.draft,circle=circles[index];
+          if(!circle)return extrude(keep(cad.makeFace(wire(curves))),angle);
+          const topRadius=circle.radius-feature.height*Math.tan(angle*Math.PI/180);
+          if(topRadius<=1e-7)throw Error(`The draft closes ${index?'a circular hole':'the circular profile'} before the top. Reduce the draft angle or height.`);
+          const sections=[circle.radius,topRadius].map((radius,i)=>keep(cad.assembleWire([
+            keep(cad.makeCircle(radius,[...circle.center,i*feature.height]))
+          ])));
+          return keep(cad.loft(sections,{ruled:true}));
+        });
+        solid=drafted[0];
+        for(const hole of drafted.slice(1))solid=keep(solid.cut(hole));
+        const checker=new (cad.getOC()).BRepCheck_Analyzer(solid.wrapped);
+        try{if(!checker.IsValid())throw Error('The draft does not leave a valid solid. Reduce the draft angle or height.');}finally{checker.delete();}
+      }else solid=extrude(keep(cad.makeFace(wire(profile.outer),profile.holes.map(wire))),feature.draft);
       if(feature.start)solid=keep(solid.translateZ(feature.start));
       return solid;
     });

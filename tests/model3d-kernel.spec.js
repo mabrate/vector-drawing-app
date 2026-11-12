@@ -22,6 +22,51 @@ test('true solids preserve millimeters, holes, curves and draft angle',()=>{
   try{expect(cad.measureVolume(bodies.get('curves').shape)).toBeCloseTo(Math.abs(circle.area)*MM_PER_PIXEL**2*8,1);}finally{disposeBodies(bodies);circle.remove();}
 });
 
+test('20 mm circular profiles draft to valid cones in either direction without changing their recipe',async()=>{
+  const circle=new paper.Path.Circle({center:[200,240],radius:10/MM_PER_PIXEL,insert:false});
+  circle.rotate(23);circle.reverse();
+  const profile=selectionProfiles(paper,[circle])[0],before=JSON.stringify(profile);
+  const height=10,frustum=(radius,offset)=>Math.PI*height/3*(radius**2+radius*(radius-offset)+(radius-offset)**2);
+  try{
+    for(const angle of [5,-5]){
+      const bodies=buildModel(model([extrusion('circle',profile,height,{draft:angle,start:7})]));
+      try{
+        const shape=bodies.get('circle').shape,checker=new (cad.getOC()).BRepCheck_Analyzer(shape.wrapped);
+        try{expect(checker.IsValid()).toBe(true);}finally{checker.delete();}
+        expect(cad.measureVolume(shape)).toBeCloseTo(frustum(10,height*Math.tan(angle*Math.PI/180)),6);
+        const faces=shape.faces;try{expect(faces.filter(face=>face.geomType==='CONE')).toHaveLength(1);}finally{faces.forEach(face=>face.delete());}
+        const box=shape.boundingBox;try{expect(box.bounds[0][2]).toBeCloseTo(7,5);expect(box.bounds[1][2]).toBeCloseTo(17,5);}finally{box.delete();}
+        expect(modelMeshes(bodies)[0].mesh.triangles.length).toBeGreaterThan(24);
+        for(const format of ['step','stl'])expect(exportModel(bodies,format).size).toBeGreaterThan(100);
+      }finally{disposeBodies(bodies);}
+    }
+    expect(JSON.stringify(profile)).toBe(before);
+    expect(()=>buildModel(model([extrusion('circle',profile,200,{draft:5})]))).toThrow(/draft closes the circular profile/);
+    // Unequal scaling makes an ellipse, which must never be replaced by a cone.
+    circle.scale(1,1.1);const ellipse=selectionProfiles(paper,[circle])[0];
+    expect(()=>buildModel(model([extrusion('ellipse',ellipse,10,{draft:5})]))).toThrow();
+  }finally{circle.remove();}
+});
+
+test('drafts expand circular holes, support mixed outlines, and reject walls that close at the top',()=>{
+  const circle=new paper.Path.Circle({center:[0,0],radius:10/MM_PER_PIXEL,insert:false});
+  const outer=selectionProfiles(paper,[circle])[0];circle.scale(.3);
+  const hole=selectionProfiles(paper,[circle])[0].outer;circle.remove();
+  const height=10,offset=height*Math.tan(5*Math.PI/180);
+  const frustum=(radius,d)=>Math.PI*height/3*(radius**2+radius*(radius-d)+(radius-d)**2);
+  for(const angle of [5,-5]){
+    const bodies=buildModel(model([extrusion('ring',{...outer,holes:[hole]},height,{draft:angle})]));
+    try{expect(cad.measureVolume(bodies.get('ring').shape)).toBeCloseTo(frustum(10,Math.sign(angle)*offset)-frustum(3,-Math.sign(angle)*offset),5);}finally{disposeBodies(bodies);}
+  }
+  const plate=rect(-20,-15,40,30);plate.holes=[hole];
+  let bodies=buildModel(model([extrusion('plate',plate,height,{draft:5})]));
+  try{expect(cad.measureVolume(bodies.get('plate').shape)).toBeCloseTo(40*30*height-70*height*offset+4/3*height*offset**2-frustum(3,-offset),4);}finally{disposeBodies(bodies);}
+  bodies=buildModel(model([extrusion('mixed',{...outer,holes:[rect(-1,-1,2,2).outer]},height,{draft:5})]));
+  try{expect(cad.measureVolume(bodies.get('mixed').shape)).toBeCloseTo(frustum(10,offset)-(4*height+4*height*offset+4/3*height*offset**2),4);}finally{disposeBodies(bodies);}
+  expect(()=>buildModel(model([extrusion('ring',{...outer,holes:[hole]},50,{draft:5})]))).toThrow(/draft closes the wall/);
+  expect(()=>buildModel(model([extrusion('ring',{...outer,holes:[hole]},40,{draft:-5})]))).toThrow(/draft closes a circular hole/);
+});
+
 test('unions and cuts produce one connected body and a real junction chamfer',()=>{
   const features=[extrusion('base',rect(0,0,40,30),3),extrusion('boss',rect(10,10,20,10),15,{operation:'join',target:'base'})];
   let bodies=buildModel(model(features));

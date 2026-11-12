@@ -23,6 +23,22 @@ test('extrusion preview is reversible and applies one recoverable, editable SVG 
   await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-draft')).toHaveValue('5');await page.screenshot({path:'/tmp/vector-lab-model3d-desktop.png'});expect(errors).toEqual([]);
 });
 
+test('a 20 mm circle accepts 5 degree draft, recovers after excessive draft, and reopens unchanged',async({page})=>{
+  const circle=`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="${10*96/25.4}" fill="teal"/></svg>`;
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/');page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles({name:'20mm-circle.svg',mimeType:'image/svg+xml',buffer:Buffer.from(circle)});await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');
+  const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
+  await page.locator('#extrude-path').click();await ready(page);await page.locator('#model3d-draft').fill('5');await ready(page);
+  await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 2874.754 mm³');
+  await page.locator('#model3d-height').fill('200');await expect(page.locator('#model3d-status')).toContainText('draft closes the circular profile');await expect(page.locator('#model3d-apply')).toBeDisabled();
+  await page.locator('#model3d-height').fill('10');await ready(page);await page.locator('#model3d-draft').fill('-5');await ready(page);
+  await expect(page.locator('#model3d-status')).not.toHaveClass(/model3d-error/);await page.locator('#model3d-draft').fill('5');await ready(page);
+  expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
+  await page.screenshot({path:'/tmp/vector-lab-circle-draft-5deg.png'});
+  await page.locator('#model3d-apply').click();const recipe=await stored(page);expect(recipe.features[0].draft).toBe(5);
+  await page.reload();await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-draft')).toHaveValue('5');await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 2874.754 mm³');expect(await stored(page)).toEqual(recipe);expect(errors).toEqual([]);
+});
+
 test('edge treatments select actual CAD edges, validate input, and stay in the modal until applied',async({page})=>{
   await load(page);await page.locator('#extrude-path').click();await ready(page);
   await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-chamfer')).toBeEnabled();await page.locator('#model3d-edge-size').fill('0.5');await page.locator('#model3d-chamfer').click();await ready(page);await expect(page.locator('#model3d-features li')).toHaveCount(2);
