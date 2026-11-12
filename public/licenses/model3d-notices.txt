@@ -1,5 +1,9 @@
 Vector Lab experimental 3D modeling dependencies
 
+Clipper 6.4.2, copyright Angus Johnson 2010-2017 and JavaScript contributors,
+under the Boost Software License 1.0 (clipper-BSL-1.0.txt).
+Source: https://github.com/junmer/clipper-lib
+
 Three.js 0.187.0 (see the installed package.json/package-lock.json for the exact
 version used by a given release), copyright its contributors. MIT license:
 three-MIT.txt. Source: https://github.com/mrdoob/three.js

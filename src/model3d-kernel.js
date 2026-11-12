@@ -1,5 +1,6 @@
 import * as cad from 'replicad';
 import {validModel} from './model3d-data.js';
+import {planarChamfer,PLANAR_CHAMFER_TOLERANCE} from './planar-chamfer.js';
 
 // Sample geometry rather than kernel hash codes: hashes change on every rebuild.
 // An edge treatment must fail explicitly if a prior edit removes its edge.
@@ -40,7 +41,7 @@ function profileSolid(feature){
   }
 }
 
-export function buildModel(model){
+export function buildModel(model,{planarFallback=true}={}){
   if(!validModel(model))throw Error('Invalid 3D model recipe.');
   const bodies=new Map();
   try{
@@ -60,11 +61,17 @@ export function buildModel(model){
           const body=bodies.get(feature.target),wanted=new Set(feature.edges),found=new Set();
           for(const edge of body.shape.edges){try{const key=edgeSignature(edge);if(wanted.has(key))found.add(key);}finally{edge.delete();}}
           if(found.size!==wanted.size)throw Error('A selected edge changed. Remove this treatment and select the edge again.');
-          const next=body.shape[feature.kind](edge=>{
-            const key=edgeSignature(edge);
-            if(wanted.has(key))return feature.amount;
-            return null;
-          });
+          let next;
+          try{
+            next=body.shape[feature.kind](edge=>wanted.has(edgeSignature(edge))?feature.amount:null);
+            const checker=new (cad.getOC()).BRepCheck_Analyzer(next.wrapped);
+            try{if(!checker.IsValid())throw Error('The edge treatment did not produce a valid solid.');}finally{checker.delete();}
+          }catch(error){
+            next?.delete();
+            if(feature.kind!=='chamfer'||!planarFallback)throw error;
+            try{next=planarChamfer(body.shape,wanted,feature.amount,edgeSignature);body.planarBevelTolerance=PLANAR_CHAMFER_TOLERANCE;}
+            catch{throw error;}
+          }
           body.shape.delete();body.shape=next;
         }
         const body=bodies.get(feature.operation==='new'?feature.id:feature.target);
@@ -106,6 +113,7 @@ export function modelMeshes(bodies){
         finally{start.delete();end.delete();}
       }finally{edge.delete();}
     }
+    const adjacentNormals=new Map();
     for(const face of body.shape.faces){
       try{
         if(face.geomType!=='PLANE')continue;
@@ -116,10 +124,18 @@ export function modelMeshes(bodies){
           const canonical=direction.map(value=>value*sign),point=center.toTuple(),offset=canonical.reduce((sum,value,i)=>sum+value*point[i],0);
           planeId=planeIdFor(canonical,offset);
         }finally{normal.delete();center.delete();}
-        for(const edge of face.edges){try{const data=topology.get(edge.hashCode);if(data&&!data.planeIds.includes(planeId))data.planeIds.push(planeId);}finally{edge.delete();}}
+        for(const edge of face.edges){try{const data=topology.get(edge.hashCode);if(data&&!data.planeIds.includes(planeId))data.planeIds.push(planeId);if(!adjacentNormals.has(edge.hashCode))adjacentNormals.set(edge.hashCode,[]);adjacentNormals.get(edge.hashCode).push(planes[planeId].normal);}finally{edge.delete();}}
       }finally{face.delete();}
     }
-    return {id:body.id,name:body.name,mesh,edges:{...edgeMesh,planes,edgeGroups:edgeMesh.edgeGroups.map(group=>({...group,...topology.get(group.edgeId)}))},volume:cad.measureVolume(body.shape)};
+    const visible=group=>{
+      if(!body.planarBevelTolerance)return true;
+      const normals=adjacentNormals.get(group.edgeId);
+      // The generated bevel's internal surface triangles are tessellation,
+      // rather than additional editable ridges. Keep cap and wall boundaries.
+      if(normals?.length!==2||normals.some(n=>Math.abs(n[2])<.1||Math.abs(n[2])>.95))return true;
+      return Math.abs(normals[0].reduce((sum,n,i)=>sum+n*normals[1][i],0))<Math.cos(5*Math.PI/180);
+    };
+    return {id:body.id,name:body.name,mesh,edges:{...edgeMesh,planes,edgeGroups:edgeMesh.edgeGroups.filter(visible).map(group=>({...group,...topology.get(group.edgeId)}))},volume:cad.measureVolume(body.shape),planarBevelTolerance:body.planarBevelTolerance||0};
   });
 }
 

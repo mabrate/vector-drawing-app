@@ -126,7 +126,8 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
       meshes=result.meshes;valid=true;viewer?.setMeshes(meshes,needsFit);needsFit=false;populateEdges();
       const volume=meshes.reduce((sum,mesh)=>sum+mesh.volume,0),value=volume/unitFactors[unit]**3;
       $('summary').textContent=meshes.length?`${meshes.length} solid group${meshes.length===1?'':'s'} · ${Number(value.toFixed(3))} ${unit}³`:'No solids yet. Select closed paths in the drawing, then add an extrusion.';
-      status('Preview only. Apply keeps these features; Cancel leaves the drawing unchanged.');
+      const tolerance=Math.max(0,...meshes.map(mesh=>mesh.planarBevelTolerance||0));
+      status('Preview only. Apply keeps these features; Cancel leaves the drawing unchanged.'+(tolerance?` Planar bevel accuracy: ${tolerance} mm.`:''));
     }
     enable();pump();
   }

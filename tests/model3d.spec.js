@@ -1,4 +1,5 @@
 import {test,expect} from '@playwright/test';
+import {readFile} from 'node:fs/promises';
 test.use({launchOptions:{executablePath:'/usr/bin/google-chrome',args:['--enable-unsafe-swiftshader']}});
 test.setTimeout(90000);
 const svg='<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120"><path d="M0 0H160V120H0Z" fill="#508b87"/></svg>';
@@ -86,4 +87,15 @@ test('the supplied stepped block reopens its junction chamfer and keeps all four
   await page.screenshot({path:'/tmp/vector-lab-model3d-junction.png'});
   await page.locator('#model3d-treatment-size').fill('0.5');await ready(page);await page.locator('#model3d-apply').click();expect((await stored(page)).features[2].amount).toBe(0.5);
   await page.reload();await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-treatment-size')).toHaveValue('0.5');await expect(page.locator('#model3d-treatment-help')).toContainText('4 edges');
+});
+
+test('the 1 mm fish chamfer previews, applies and reopens with its original profile and full edge selection',async({page})=>{
+  test.setTimeout(180000);
+  const model=JSON.parse(await readFile(new URL('./fixtures/fish-chamfer.json',import.meta.url),'utf8'));
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"><metadata id="vector-lab-model3d">${JSON.stringify(model)}</metadata><path d="M10 10h100v50H10z" fill="teal"/></svg>`;
+  await page.goto('/');page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'fish.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg)});await expect(page.locator('#status')).toContainText('SVG opened');
+  await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-treatment-size')).toHaveValue('1');await expect(page.locator('#model3d-treatment-help')).toContainText('71 edges');await expect(page.locator('#model3d-status')).toContainText('0.02 mm');
+  await page.screenshot({path:'/tmp/vector-lab-fish-1mm-chamfer.png'});
+  await page.locator('#model3d-apply').click();expect((await stored(page)).features.at(-1).amount).toBe(1);expect((await stored(page)).features[0].profile).toEqual(model.features[0].profile);
+  await page.reload();await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-treatment-size')).toHaveValue('1');await expect(page.locator('#model3d-status')).toContainText('0.02 mm');
 });
