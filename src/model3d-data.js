@@ -2,6 +2,7 @@
 // coordinates and distances are millimeters; the drawing uses 96 px per inch.
 export const MM_PER_PIXEL=25.4/96;
 export const MAX_TREATMENT_EDGES=4000;
+export const MAX_SHELL_FACES=1000;
 export const emptyModel=()=>({version:1,features:[]});
 const finite=(value,limit=100000)=>typeof value==='number'&&Number.isFinite(value)&&Math.abs(value)<=limit;
 const point=value=>Array.isArray(value)&&value.length===2&&value.every(n=>finite(n));
@@ -21,6 +22,8 @@ export function validModel(model){
       if(feature.operation==='new'){if(feature.target!==null)return false;bodies.add(feature.id);}
       else if(!bodies.has(feature.target))return false;
       if(!Array.isArray(feature.profile)||!feature.profile.length||feature.profile.length>100||!feature.profile.every(face=>face&&wire(face.outer)&&Array.isArray(face.holes)&&face.holes.length<=100&&face.holes.every(wire)))return false;
+    }else if(feature.kind==='shell'){
+      if(!bodies.has(feature.target)||!finite(feature.thickness,1000)||feature.thickness<=0||!['inside','outside'].includes(feature.direction)||!Array.isArray(feature.faces)||!feature.faces.length||feature.faces.length>MAX_SHELL_FACES||new Set(feature.faces).size!==feature.faces.length||!feature.faces.every(face=>typeof face==='string'&&face.length>0&&face.length<=300))return false;
     }else if(['chamfer','fillet'].includes(feature.kind)){
       if(!bodies.has(feature.target)||!finite(feature.amount,1000)||feature.amount<=0||!Array.isArray(feature.edges)||!feature.edges.length||feature.edges.length>MAX_TREATMENT_EDGES||!feature.edges.every(edge=>typeof edge==='string'&&edge.length<=300))return false;
       edges+=feature.edges.length;

@@ -109,3 +109,55 @@ test('portable recipes reject malformed dimensions and orphaned operations',()=>
   expect(validModel(model([base,join]))).toBe(true);expect(validModel(model([{...base,height:NaN}]))).toBe(false);expect(validModel(model([join,base]))).toBe(false);
   expect(withoutFeature(model([base,join]),'base').features).toEqual([]);
 });
+
+test('shells create cups, tubes and side openings with real inward/outward wall placement',()=>{
+  const base=extrusion('box',rect(0,0,40,30),20);
+  let bodies=buildModel(model([base])),catalog;
+  try{catalog=modelMeshes(bodies)[0].faces;}finally{disposeBodies(bodies);}
+  const top=catalog.find(face=>face.label.endsWith('Z 20 mm')).key,bottom=catalog.find(face=>face.label.endsWith('Z 0 mm')).key;
+  const shell={id:'shell',name:'Shell',kind:'shell',target:'box',thickness:1,direction:'inside',faces:[top]};
+  for(const [faces,volume] of [[[top],24000-38*28*19],[[top,bottom],24000-38*28*20],[[top,catalog[0].key],24000-38*29*19]]){
+    bodies=buildModel(model([base,{...shell,faces}]));
+    try{
+      const shape=bodies.get('box').shape,checker=new (cad.getOC()).BRepCheck_Analyzer(shape.wrapped);
+      try{expect(checker.IsValid()).toBe(true);}finally{checker.delete();}
+      expect(cad.measureVolume(shape)).toBeCloseTo(volume,5);
+      const box=shape.boundingBox;try{expect(box.bounds[0]).toEqual([0,0,0]);expect(box.bounds[1]).toEqual([40,30,20]);}finally{box.delete();}
+      expect(modelMeshes(bodies)[0].shellSources.shell).toHaveLength(6);
+      for(const format of ['stl','step'])expect(exportModel(bodies,format).size).toBeGreaterThan(100);
+    }finally{disposeBodies(bodies);}
+  }
+  bodies=buildModel(model([base,{...shell,direction:'outside'}]));
+  try{
+    const shape=bodies.get('box').shape,box=shape.boundingBox;
+    try{expect(box.bounds[0]).toEqual([-1,-1,-1]);expect(box.bounds[1]).toEqual([41,31,20]);}finally{box.delete();}
+    const original=buildModel(model([base]));
+    try{const common=shape.intersect(original.get('box').shape);try{expect(Math.abs(cad.measureVolume(common))).toBeLessThan(1e-5);}finally{common.delete();}}finally{disposeBodies(original);}
+  }finally{disposeBodies(bodies);}
+  expect(()=>buildModel(model([base,{...shell,thickness:100}]))).toThrow(/thickness/);
+  expect(()=>buildModel(model([base,{...shell,faces:['missing-face']}]))).toThrow(/opening face changed/);
+  expect(()=>buildModel(model([base,{...shell,faces:catalog.map(face=>face.key)}]))).toThrow(/at least one face/);
+  expect(()=>buildModel(model([{...base,height:25},shell]))).toThrow(/opening face changed/);
+  for(const patch of [{thickness:0},{thickness:NaN},{thickness:1001},{direction:'both'},{faces:[]},{faces:[top,top]},{target:'absent'},{faces:[null]}])expect(validModel(model([base,{...shell,...patch}]))).toBe(false);
+  expect(withoutFeature(model([base,shell]),'box').features).toEqual([]);
+});
+
+test('circular extrusions shell into tubes in either direction and reject invalid conical offsets',()=>{
+  const circle=new paper.Path.Circle({center:[0,0],radius:10/MM_PER_PIXEL,insert:false});
+  const profile=selectionProfiles(paper,[circle])[0];circle.remove();
+  for(const draft of [0,5])for(const direction of ['inside','outside']){
+    const base=extrusion('cylinder',profile,20,{start:3,draft});let bodies=buildModel(model([base])),caps;
+    try{caps=modelMeshes(bodies)[0].faces.filter(face=>face.label.includes(' · Z ')).map(face=>face.key);}finally{disposeBodies(bodies);}
+    expect(caps).toHaveLength(2);
+    if(draft){expect(()=>buildModel(model([base,{id:'tube',name:'Tube',kind:'shell',target:'cylinder',thickness:1,direction,faces:caps}]))).toThrow(/shell could not be built/);continue;}
+    bodies=buildModel(model([base,{id:'tube',name:'Tube',kind:'shell',target:'cylinder',thickness:1,direction,faces:caps}]));
+    try{
+      const shape=bodies.get('cylinder').shape,checker=new (cad.getOC()).BRepCheck_Analyzer(shape.wrapped);
+      try{expect(checker.IsValid()).toBe(true);}finally{checker.delete();}
+      if(!draft)expect(cad.measureVolume(shape)).toBeCloseTo(Math.PI*20*(direction==='inside'?100-81:121-100),0);
+      const box=shape.boundingBox;try{expect(box.bounds[0][2]).toBeCloseTo(3,5);expect(box.bounds[1][2]).toBeCloseTo(23,5);}finally{box.delete();}
+      expect(modelMeshes(bodies)[0].mesh.triangles.length).toBeGreaterThan(30);
+      expect(exportModel(bodies,'step').size).toBeGreaterThan(100);
+    }finally{disposeBodies(bodies);}
+  }
+});

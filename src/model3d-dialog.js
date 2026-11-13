@@ -1,4 +1,4 @@
-import {emptyModel,readModel,selectionProfiles,withoutFeature,MM_PER_PIXEL,MAX_TREATMENT_EDGES,validModel} from './model3d-data.js';
+import {emptyModel,readModel,selectionProfiles,withoutFeature,MM_PER_PIXEL,MAX_TREATMENT_EDGES,MAX_SHELL_FACES,validModel} from './model3d-data.js';
 import './model3d.css';
 
 export function installModel3D({paper,getSelection,getModel,setModel,getUnit,finish,say}){
@@ -6,7 +6,8 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   dialog.innerHTML=`<div class="model3d-heading"><div><small>EXPERIMENTAL · PLANAR MODELING</small><h2 id="model3d-title">3D model</h2></div><button id="model3d-close" aria-label="Cancel 3D modeling">×</button></div>
     <div class="model3d-layout"><section class="model3d-preview-column" aria-label="Model preview">
       <div class="model3d-views" role="group" aria-label="3D views"><button data-model-view="iso">Isometric</button><button data-model-view="top">Top</button><button data-model-view="front">Front</button><button data-model-view="right">Right</button><button id="model3d-fit">Fit</button></div>
-      <div id="model3d-viewer"></div><p class="model3d-gesture-help">Drag to orbit · Right-drag or two fingers to pan/zoom · Tap an edge to select its chain</p>
+      <div id="model3d-viewer"></div><p class="model3d-gesture-help">Drag to orbit · Right-drag or two fingers to pan/zoom · Tap edges for treatments or faces for shell openings</p>
+      <label class="model3d-pick-label">Pick in preview <select id="model3d-pick-mode"><option value="edges">Edges · chamfer / fillet</option><option value="faces">Faces · shell openings</option></select></label>
       <p id="model3d-summary">No solids yet.</p>
     </section><section class="model3d-controls" aria-label="Model features">
       <label class="model3d-unit">Units <select id="model3d-unit"><option value="mm">mm</option><option value="in">in</option><option value="px">px</option><option value="pt">pt</option></select></label>
@@ -22,6 +23,19 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
         <button id="model3d-replace">Replace profile with selected paths</button>
       </fieldset>
       <fieldset id="model3d-treatment" hidden><legend>Edge treatment</legend><label>Size <input id="model3d-treatment-size" type="number" step="any" min="0.0001"></label><small id="model3d-treatment-help"></small></fieldset>
+      <fieldset id="model3d-shell-edit" hidden><legend>Edit shell</legend>
+        <label>Wall thickness <input id="model3d-shell-thickness" type="number" step="any" min="0.0001"></label>
+        <label>Walls <select id="model3d-shell-direction"><option value="inside">Inside original solid</option><option value="outside">Outside original solid</option></select></label>
+        <small>Opening faces before this shell. Check one or more; keep at least one face for the walls.</small><div id="model3d-shell-openings" class="model3d-face-list"></div>
+      </fieldset>
+      <fieldset id="model3d-shell"><legend>Create shell</legend>
+        <label>Solid <select id="model3d-shell-target"></select></label>
+        <label>Wall thickness <input id="model3d-shell-size" type="number" step="any" value="1" min="0.0001"></label>
+        <label>Walls <select id="model3d-shell-side"><option value="inside">Inside original solid</option><option value="outside">Outside original solid</option></select></label>
+        <p id="model3d-face-count">Select one or more opening faces.</p><div id="model3d-faces" class="model3d-face-list"></div>
+        <div class="model3d-pair"><button id="model3d-clear-faces" disabled>Clear faces</button><button id="model3d-add-shell" disabled>Add shell</button></div>
+        <small>Choose Faces above to tap opening surfaces, or check them here. Select the top for a cup; both end caps for a tube. Inside preserves the outside dimensions; outside preserves the cavity.</small>
+      </fieldset>
       <fieldset id="model3d-edges"><legend>Chamfer / fillet</legend><p id="model3d-edge-count">Select an edge in the preview.</p>
         <label>Selection <select id="model3d-edge-mode"><option value="connected">Connected in plane</option><option value="individual">Individual edges</option></select></label>
         <label><span id="model3d-edge-picker-label">Choose a chain</span><select id="model3d-edge-picker"><option value="">Pick a chain…</option></select></label>
@@ -38,26 +52,57 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   const $=id=>dialog.querySelector(`#model3d-${id}`);
   const entry=document.createElement('button');entry.id='model3d-open';entry.textContent='3D model…';document.querySelector('header nav').insertBefore(entry,document.getElementById('save'));
   const extrude=document.createElement('button');extrude.id='extrude-path';extrude.textContent='Extrude…';document.querySelector('.object-actions').append(extrude);
-  let working=emptyModel(),source=null,sourceError='',activeId=null,viewer=null,worker=null,sequence=0,inFlight=null,queued=null,valid=false,meshes=[],edges=[],edgeOptions=[],timer=null,session=0,unit='mm',exporting=false,needsFit=true,loading=false;
+  let working=emptyModel(),source=null,sourceError='',activeId=null,viewer=null,worker=null,sequence=0,inFlight=null,queued=null,valid=false,meshes=[],edges=[],faces=[],edgeOptions=[],timer=null,session=0,unit='mm',exporting=false,needsFit=true,loading=false;
   const unitFactors={mm:1,in:25.4,px:MM_PER_PIXEL,pt:25.4/72};
+  const shellCatalogs=new Map();
   const active=()=>working.features.find(feature=>feature.id===activeId);
   const format=value=>String(Number((value/unitFactors[unit]).toFixed(6)));
   function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('model3d-error',error);}
   function enable(){
     const ready=valid&&!inFlight&&!queued&&!timer&&!loading&&!exporting;
     $('add').disabled=$('replace').disabled=!source||loading||exporting;
-    $('extrusion').disabled=$('treatment').disabled=loading||exporting;
+    $('extrusion').disabled=$('treatment').disabled=$('shell-edit').disabled=loading||exporting;
+    $('shell').disabled=!ready||!meshes.length;
     $('apply').disabled=!ready;$('stl').disabled=$('step').disabled=!ready||!meshes.length;
     $('chamfer').disabled=$('fillet').disabled=!ready||!edges.length;
     $('clear-edges').disabled=!edges.length;
+    $('add-shell').disabled=!ready||!faces.length||faces.length>MAX_SHELL_FACES;
+    $('clear-faces').disabled=!faces.length;
   }
   function onSelection(next){edges=next;const target=$('edge-mode').value==='individual'?'edge':'chain';$('edge-count').textContent=edges.length?`${edges.length} edge${edges.length===1?'':'s'} selected. Tap the ${target} again to deselect.`:'Select an edge in the preview.';enable();}
+  function onFaceSelection(next){
+    faces=next;if(faces.length)$('shell-target').value=faces[0].body;
+    $('face-count').textContent=faces.length?`${faces.length} opening face${faces.length===1?'':'s'} selected.`:'Select one or more opening faces.';
+    populateFaces();enable();
+  }
+  function faceChecks(container,catalog,selected,onChange){
+    container.replaceChildren();
+    for(const face of catalog){
+      const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.checked=selected.includes(face.key);input.value=face.key;
+      input.onchange=()=>onChange(face.key);label.append(input,document.createTextNode(face.label));container.append(label);
+    }
+  }
+  function populateFaces(){
+    const previous=$('shell-target').value;$('shell-target').replaceChildren(...meshes.map(body=>new Option(body.name,body.id)));
+    if(meshes.some(body=>body.id===previous))$('shell-target').value=previous;
+    const body=meshes.find(body=>body.id===$('shell-target').value);
+    faceChecks($('faces'),body?.faces||[],faces.filter(face=>face.body===body?.id).map(face=>face.key),key=>{setPickMode('faces');viewer?.selectFace({body:body.id,key});});
+  }
+  function showShellOpenings(){
+    const feature=active();if(feature?.kind!=='shell')return;
+    const catalog=shellCatalogs.get(feature.id)||[];
+    faceChecks($('shell-openings'),catalog,feature.faces,key=>{
+      feature.faces=feature.faces.includes(key)?feature.faces.filter(face=>face!==key):[...feature.faces,key];
+      updateList();schedule();
+    });
+  }
+  function setPickMode(mode){$('pick-mode').value=mode;viewer?.setPickMode(mode);}
   function updateList(){
     $('features').replaceChildren();
     for(const feature of working.features){
       const row=document.createElement('li'),button=document.createElement('button'),remove=document.createElement('button');
       button.textContent=feature.name;button.setAttribute('aria-pressed',String(feature.id===activeId));button.onclick=()=>{activeId=feature.id;updateList();showFeature();};
-      const detail=document.createElement('small');detail.textContent=feature.kind==='extrusion'?`${{new:'New solid',join:'Add',cut:'Cut'}[feature.operation]} · ${format(feature.height)} ${unit}${feature.draft?` · ${feature.draft}°`:''}`:`${feature.kind} · ${format(feature.amount)} ${unit}`;button.append(detail);
+      const detail=document.createElement('small');detail.textContent=feature.kind==='extrusion'?`${{new:'New solid',join:'Add',cut:'Cut'}[feature.operation]} · ${format(feature.height)} ${unit}${feature.draft?` · ${feature.draft}°`:''}`:feature.kind==='shell'?`Shell · ${format(feature.thickness)} ${unit} · ${feature.direction} · ${feature.faces.length} opening${feature.faces.length===1?'':'s'}`:`${feature.kind} · ${format(feature.amount)} ${unit}`;button.append(detail);
       remove.textContent='×';remove.setAttribute('aria-label',`Remove ${feature.name}`);remove.onclick=()=>{working=withoutFeature(working,feature.id);if(!working.features.some(feature=>feature.id===activeId))activeId=working.features.at(-1)?.id||null;updateList();showFeature();schedule();};
       row.append(button,remove);$('features').append(row);
     }
@@ -73,12 +118,13 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
     for(const option of $('operation').options)option.disabled=option.value!=='new'&&!$('target').options.length;
   }
   function showFeature(){
-    const feature=active();$('extrusion').hidden=feature?.kind!=='extrusion';$('treatment').hidden=!feature||feature.kind==='extrusion';
+    const feature=active();$('extrusion').hidden=feature?.kind!=='extrusion';$('treatment').hidden=!['chamfer','fillet'].includes(feature?.kind);$('shell-edit').hidden=feature?.kind!=='shell';
     if(!feature)return;
     if(feature.kind==='extrusion'){
       $('name').value=feature.name;$('operation').value=feature.operation;targetOptions(feature);
       for(const key of ['height','start'])$(key).value=format(feature[key]);$('draft').value=feature.draft;
-    }else{$('treatment-size').value=format(feature.amount);$('treatment-help').textContent=`${feature.edges.length} edge${feature.edges.length===1?'':'s'} · ${feature.kind}. Remove this feature to select different edges.`;}
+    }else if(feature.kind==='shell'){$('shell-thickness').value=format(feature.thickness);$('shell-direction').value=feature.direction;showShellOpenings();}
+    else{$('treatment-size').value=format(feature.amount);$('treatment-help').textContent=`${feature.edges.length} edge${feature.edges.length===1?'':'s'} · ${feature.kind}. Remove this feature to select different edges.`;}
   }
   function controlsChanged(){
     const feature=active();if(!feature)return;
@@ -87,7 +133,8 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
       feature.target=feature.operation==='new'?null:$('target').value||null;
       feature.height=$('height').valueAsNumber*unitFactors[unit];feature.start=$('start').valueAsNumber*unitFactors[unit];feature.draft=$('draft').valueAsNumber;
       targetOptions(feature);
-    }else feature.amount=$('treatment-size').valueAsNumber*unitFactors[unit];
+    }else if(feature.kind==='shell'){feature.thickness=$('shell-thickness').valueAsNumber*unitFactors[unit];feature.direction=$('shell-direction').value;}
+    else feature.amount=$('treatment-size').valueAsNumber*unitFactors[unit];
     updateList();schedule();
   }
   function cancelPending(){clearTimeout(timer);timer=null;queued=null;}
@@ -97,7 +144,7 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   }
   function requestBuild(){
     if(!dialog.open||!worker)return;
-    if(!validModel(working)){queued=null;valid=false;status('Check the dimensions and target. Height must be positive, draft must be between −60° and 60°, and each operation needs an earlier solid.',true);enable();return;}
+    if(!validModel(working)){queued=null;valid=false;status('Check the dimensions and target. Height and wall thickness must be positive, draft must be between −60° and 60°, shells need opening faces, and each operation needs an earlier solid.',true);enable();return;}
     queued={id:++sequence,type:'build',model:structuredClone(working)};valid=false;enable();pump();
   }
   function pump(){if(inFlight||!queued||!worker)return;inFlight=queued;queued=null;worker.postMessage(inFlight);}
@@ -123,7 +170,8 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
     if(queued||timer||JSON.stringify(request.model)!==JSON.stringify(working)){pump();enable();return;}
     if(result.error){valid=false;status(result.error,true);$('summary').textContent='Preview could not update. The last successful view is shown.';}
     else{
-      meshes=result.meshes;valid=true;viewer?.setMeshes(meshes,needsFit);needsFit=false;populateEdges();
+      meshes=result.meshes;for(const body of meshes)for(const [id,catalog] of Object.entries(body.shellSources))shellCatalogs.set(id,catalog);
+      valid=true;viewer?.setMeshes(meshes,needsFit);needsFit=false;populateEdges();populateFaces();showShellOpenings();
       const volume=meshes.reduce((sum,mesh)=>sum+mesh.volume,0),value=volume/unitFactors[unit]**3;
       $('summary').textContent=meshes.length?`${meshes.length} solid group${meshes.length===1?'':'s'} · ${Number(value.toFixed(3))} ${unit}³`:'No solids yet. Select closed paths in the drawing, then add an extrusion.';
       const tolerance=Math.max(0,...meshes.map(mesh=>mesh.planarBevelTolerance||0));
@@ -140,14 +188,14 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   async function open(add=false){
     finish();const thisSession=++session;
     try{working=readModel(getModel());}catch(error){say(error.message);return;}
-    activeId=working.features.at(-1)?.id||null;
+    activeId=working.features.at(-1)?.id||null;shellCatalogs.clear();
     source=null;sourceError='';try{source=selectionProfiles(paper,getSelection());}catch(error){sourceError=error.message;}
-    unit=getUnit();$('unit').value=unit;$('edge-size').value=format(1);$('edge-mode').value='connected';$('source').textContent=source?`${source.length} selected profile${source.length===1?'':'s'} ready to extrude.`:sourceError;
-    $('add').disabled=$('replace').disabled=!source;meshes=[];edges=[];valid=false;needsFit=true;loading=true;exporting=false;updateList();showFeature();populateEdges();onSelection([]);enable();
+    unit=getUnit();$('unit').value=unit;$('edge-size').value=$('shell-size').value=format(1);$('shell-side').value='inside';$('edge-mode').value='connected';setPickMode('edges');$('source').textContent=source?`${source.length} selected profile${source.length===1?'':'s'} ready to extrude.`:sourceError;
+    $('add').disabled=$('replace').disabled=!source;meshes=[];edges=[];faces=[];valid=false;needsFit=true;loading=true;exporting=false;updateList();showFeature();populateEdges();onSelection([]);onFaceSelection([]);enable();
     dialog.showModal();status('Loading the local 3D engine…');
     try{
       const {createModelViewer}=await import('./model3d-viewer.js');if(thisSession!==session||!dialog.open)return;
-      viewer=createModelViewer($('viewer'),onSelection);
+      viewer=createModelViewer($('viewer'),onSelection,onFaceSelection);
       worker=new Worker(new URL('./model3d.worker.js',import.meta.url),{type:'module'});worker.onmessage=receive;
       worker.onerror=()=>{valid=false;inFlight=null;queued=null;loading=false;status('The local 3D engine could not load. Close and reopen the model to retry.',true);enable();};
       loading=false;
@@ -157,9 +205,21 @@ export function installModel3D({paper,getSelection,getModel,setModel,getUnit,fin
   }
   entry.onclick=()=>open();extrude.onclick=()=>open(true);$('add').onclick=addExtrusion;
   $('replace').onclick=()=>{const feature=active();if(!source||feature?.kind!=='extrusion')return;feature.profile=structuredClone(source);schedule();};
-  for(const id of ['name','height','start','draft','treatment-size'])$(id).addEventListener('input',controlsChanged);
-  for(const id of ['operation','target'])$(id).addEventListener('change',controlsChanged);
-  $('unit').onchange=()=>{unit=$('unit').value;showFeature();updateList();$('edge-size').value=format(1);if(valid)requestBuild();};
+  for(const id of ['name','height','start','draft','treatment-size','shell-thickness'])$(id).addEventListener('input',controlsChanged);
+  for(const id of ['operation','target','shell-direction'])$(id).addEventListener('change',controlsChanged);
+  $('unit').onchange=()=>{const thickness=$('shell-size').valueAsNumber*unitFactors[unit];unit=$('unit').value;showFeature();updateList();$('edge-size').value=format(1);$('shell-size').value=format(thickness);if(valid)requestBuild();};
+  $('pick-mode').onchange=()=>setPickMode($('pick-mode').value);
+  $('shell-target').onchange=()=>{viewer?.setFaceSelection([]);populateFaces();};
+  $('clear-faces').onclick=()=>viewer?.setFaceSelection([]);
+  $('add-shell').onclick=()=>{
+    const thickness=$('shell-size').valueAsNumber*unitFactors[unit];
+    if(!valid||!faces.length)return;
+    if(!Number.isFinite(thickness)||thickness<=0||thickness>1000)return status('Enter a wall thickness greater than zero and no more than 1000 mm.',true);
+    if(working.features.length>=100)return status('This model already has 100 features.',true);
+    const feature={id:crypto.randomUUID(),name:`Shell ${working.features.filter(feature=>feature.kind==='shell').length+1}`,kind:'shell',target:faces[0].body,thickness,direction:$('shell-side').value,faces:faces.map(face=>face.key)};
+    shellCatalogs.set(feature.id,meshes.find(body=>body.id===feature.target).faces);
+    working.features.push(feature);activeId=feature.id;viewer?.setFaceSelection([]);setPickMode('edges');updateList();showFeature();schedule();
+  };
   $('edge-picker').onchange=()=>{const edge=edgeOptions[Number($('edge-picker').value)];if($('edge-picker').value!==''&&edge)viewer?.selectEdge(edge);else viewer?.setSelection([]);};
   $('edge-mode').onchange=()=>{viewer?.setEdgeMode($('edge-mode').value);populateEdges();};
   $('clear-edges').onclick=()=>{viewer?.setSelection([]);$('edge-picker').value='';};

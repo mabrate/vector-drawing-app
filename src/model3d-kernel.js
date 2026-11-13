@@ -13,6 +13,22 @@ export function edgeSignature(edge){
   return `${edge.geomType}:${Number(edge.length.toFixed(5))}:${forward<reverse?forward:reverse}`;
 }
 
+// Stable geometric references survive worker rebuilds, SVG saves and recovery.
+export function faceSignature(face){
+  const box=face.boundingBox,center=face.center;
+  try{return JSON.stringify([face.geomType,cad.measureArea(face),...center.toTuple(),...box.bounds.flat()].map(value=>typeof value==='number'?Number(value.toFixed(5)):value));}
+  finally{box.delete();center.delete();}
+}
+
+function faceCatalog(shape){
+  const faces=shape.faces;
+  try{return faces.map((face,index)=>{
+    const box=face.boundingBox;let label=`Face ${index+1} · ${face.geomType.toLowerCase().replaceAll('_',' ')}`;
+    try{const [min,max]=box.bounds;if(max[2]-min[2]<1e-6)label+=` · Z ${Number(min[2].toFixed(3))} mm`;}finally{box.delete();}
+    return {key:faceSignature(face),faceId:face.hashCode,label};
+  });}finally{faces.forEach(face=>face.delete());}
+}
+
 // Paper/SVG circles are four cubic quarter arcs. Recognize that construction,
 // including rotated/reversed paths, rather than fitting arbitrary curved art.
 // DraftAngle cannot taper their spline extrusion surfaces; circular lofts give
@@ -101,6 +117,23 @@ export function buildModel(model,{planarFallback=true}={}){
               body.shape.delete();body.shape=next;
             }finally{tool.delete();}
           }
+        }else if(feature.kind==='shell'){
+          const body=bodies.get(feature.target),faces=faceCatalog(body.shape),wanted=new Set(feature.faces);
+          if(faces.filter(face=>wanted.has(face.key)).length!==wanted.size)throw Error('A selected opening face changed. Remove this shell and select its opening faces again.');
+          if(wanted.size>=faces.length)throw Error('Keep at least one face to form the shell walls.');
+          let next;
+          try{
+            // Replicad uses positive thickness for an inward offset.
+            next=body.shape.shell(feature.direction==='inside'?feature.thickness:-feature.thickness,f=>f.when(({element})=>wanted.has(faceSignature(element))));
+            const checker=new (cad.getOC()).BRepCheck_Analyzer(next.wrapped);
+            try{
+              const volume=cad.measureVolume(next);
+              // At excessive offsets OC can silently return the original solid.
+              if(!checker.IsValid()||volume<=1e-7||feature.direction==='inside'&&volume>=cad.measureVolume(body.shape)-1e-7)throw Error('Invalid shell solid.');
+            }finally{checker.delete();}
+          }catch{next?.delete();throw Error('The shell could not be built at this thickness. Reduce the wall thickness or choose different opening faces.');}
+          body.shellSources={...body.shellSources,[feature.id]:faces};
+          body.shape.delete();body.shape=next;
         }else{
           const body=bodies.get(feature.target),wanted=new Set(feature.edges),found=new Set();
           for(const edge of body.shape.edges){try{const key=edgeSignature(edge);if(wanted.has(key))found.add(key);}finally{edge.delete();}}
@@ -122,7 +155,7 @@ export function buildModel(model,{planarFallback=true}={}){
         const volume=cad.measureVolume(body.shape);
         if(!Number.isFinite(volume)||volume<=1e-7)throw Error('The operation leaves no solid. Adjust the dimensions or target.');
       }catch(error){
-        const message=typeof error?.message==='string'&&!/^\d+$/.test(error.message)?error.message:'The geometry could not be built. Try a smaller draft, chamfer, or fillet, and check that the profiles form valid solids.';
+        const message=typeof error?.message==='string'&&!/^\d+$/.test(error.message)?error.message:'The geometry could not be built. Try a smaller draft, wall thickness, chamfer, or fillet, and check that the profiles form valid solids.';
         throw Error(`${feature.name}: ${message}`);
       }
     }
@@ -179,7 +212,7 @@ export function modelMeshes(bodies){
       if(normals?.length!==2||normals.some(n=>Math.abs(n[2])<.1||Math.abs(n[2])>.95))return true;
       return Math.abs(normals[0].reduce((sum,n,i)=>sum+n*normals[1][i],0))<Math.cos(5*Math.PI/180);
     };
-    return {id:body.id,name:body.name,mesh,edges:{...edgeMesh,planes,edgeGroups:edgeMesh.edgeGroups.filter(visible).map(group=>({...group,...topology.get(group.edgeId)}))},volume:cad.measureVolume(body.shape),planarBevelTolerance:body.planarBevelTolerance||0};
+    return {id:body.id,name:body.name,mesh,faces:faceCatalog(body.shape),shellSources:body.shellSources||{},edges:{...edgeMesh,planes,edgeGroups:edgeMesh.edgeGroups.filter(visible).map(group=>({...group,...topology.get(group.edgeId)}))},volume:cad.measureVolume(body.shape),planarBevelTolerance:body.planarBevelTolerance||0};
   });
 }
 

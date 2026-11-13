@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {createEdgeSelectionIndex,edgeSelectionGroup,edgeSelectionChoices} from './model3d-edge-selection.js';
 
-export function createModelViewer(container,onSelection){
+export function createModelViewer(container,onSelection,onFaceSelection=()=>{}){
   const scene=new THREE.Scene();scene.background=new THREE.Color('#edf2ef');
   const camera=new THREE.PerspectiveCamera(40,1,.01,100000);camera.up.set(0,0,1);
   const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
@@ -12,7 +12,7 @@ export function createModelViewer(container,onSelection){
   const group=new THREE.Group();scene.add(group);
   scene.add(new THREE.HemisphereLight(0xffffff,0x6b7c79,2.8));
   const light=new THREE.DirectionalLight(0xffffff,2.6);light.position.set(-100,-150,250);scene.add(light);
-  let grid=null,meshes=[],selection=[],span=100,disposed=false,individualEdges=false;
+  let grid=null,meshes=[],selection=[],faceSelection=[],pickMode='edges',span=100,disposed=false,individualEdges=false;
   const edgeIndexes=new Map();
   const colors=['#398b87','#c78248','#7477ab','#7b9e4c','#bd6a7e'];
   function render(){if(!disposed)renderer.render(scene,camera);}
@@ -21,6 +21,22 @@ export function createModelViewer(container,onSelection){
     selection=next.filter(item=>meshes.some(mesh=>mesh.id===item.body&&mesh.edges.edgeGroups.some(edge=>edge.key===item.key)));
     for(const child of group.children){if(!child.userData.edge)continue;const chosen=selection.some(item=>item.body===child.userData.body&&item.key===child.userData.edge);child.material.color.set(chosen?'#e33f79':'#203c43');child.material.opacity=chosen?1:.68;child.renderOrder=chosen?3:1;}
     render();if(notify)onSelection(selection);
+  }
+  function setFaceSelection(next){
+    faceSelection=next.filter(item=>meshes.some(body=>body.id===item.body&&body.faces.some(face=>face.key===item.key)));
+    for(const child of group.children){
+      if(!child.userData.meshBody)continue;
+      const body=meshes.find(body=>body.id===child.userData.meshBody);child.geometry.clearGroups();
+      for(const face of body.mesh.faceGroups){
+        const key=body.faces.find(entry=>entry.faceId===face.faceId)?.key;
+        child.geometry.addGroup(face.start,face.count,faceSelection.some(item=>item.body===body.id&&item.key===key)?1:0);
+      }
+    }
+    render();onFaceSelection(faceSelection);
+  }
+  function selectFace(item){
+    const next=faceSelection.filter(face=>face.body===item.body),selected=next.some(face=>face.key===item.key);
+    setFaceSelection(selected?next.filter(face=>face.key!==item.key):[...next,item]);
   }
   function resize(){const {width,height}=container.getBoundingClientRect();if(width<1||height<1)return;renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix();render();}
   const observer=new ResizeObserver(resize);observer.observe(container);
@@ -37,8 +53,9 @@ export function createModelViewer(container,onSelection){
     for(const child of [...group.children]){disposeObject(child);group.remove(child);}
     next.forEach((body,index)=>{
       const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(body.mesh.vertices,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(body.mesh.normals,3));geometry.setIndex(body.mesh.triangles);
-      const material=new THREE.MeshStandardMaterial({color:colors[index%colors.length],roughness:.55,metalness:.05,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1});
-      group.add(new THREE.Mesh(geometry,material));
+      const settings={roughness:.55,metalness:.05,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1};
+      const surface=new THREE.Mesh(geometry,[new THREE.MeshStandardMaterial({...settings,color:colors[index%colors.length]}),new THREE.MeshStandardMaterial({...settings,color:'#e33f79'})]);
+      surface.userData.meshBody=body.id;group.add(surface);
       for(const edge of body.edges.edgeGroups){
         if(!edge.key)continue;
         const geometry=new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(body.edges.lines.slice(edge.start*3,(edge.start+edge.count)*3),3));
@@ -49,7 +66,7 @@ export function createModelViewer(container,onSelection){
     const bounds=new THREE.Box3().setFromObject(group),center=bounds.isEmpty()?new THREE.Vector3():bounds.getCenter(new THREE.Vector3());
     const extent=bounds.isEmpty()?100:Math.max(...bounds.getSize(new THREE.Vector3()).toArray(),10);
     grid=new THREE.GridHelper(extent*2,20,0xb8c7c0,0xd3dfd8);grid.rotation.x=Math.PI/2;grid.position.set(center.x,center.y,bounds.isEmpty()?-.01:Math.min(0,bounds.min.z)-.01);scene.add(grid);
-    setSelection(selection);if(fit)view();else render();
+    setSelection(selection);setFaceSelection(faceSelection);if(fit)view();else render();
   }
   controls.addEventListener('change',render);
   function selectEdge(item,{toggle=false,normal=null}={}){
@@ -69,6 +86,12 @@ export function createModelViewer(container,onSelection){
     ray.params.Line.threshold=camera.position.distanceTo(controls.target)*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*10/rect.height;
     ray.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,-(event.clientY-rect.top)/rect.height*2+1),camera);
     const hits=ray.intersectObjects(group.children),surface=hits.find(hit=>hit.object.isMesh);
+    if(pickMode==='faces'){
+      if(!surface)return;
+      const body=meshes.find(body=>body.id===surface.object.userData.meshBody),triangle=surface.faceIndex*3;
+      const faceGroup=body.mesh.faceGroups.find(face=>triangle>=face.start&&triangle<face.start+face.count),face=body.faces.find(face=>face.faceId===faceGroup?.faceId);
+      if(face)selectFace({body:body.id,key:face.key});return;
+    }
     const hit=hits.find(hit=>hit.object.userData.edge&&(!surface||hit.distance<=surface.distance+ray.params.Line.threshold*2));
     if(!hit){setSelection([]);return;}
     const item={body:hit.object.userData.body,key:hit.object.userData.edge};
@@ -76,5 +99,5 @@ export function createModelViewer(container,onSelection){
   });
   renderer.domElement.addEventListener('pointercancel',event=>{pointers.delete(event.pointerId);down=null;});
   resize();view();
-  return {setMeshes,setSelection,selectEdge,setEdgeMode(mode){individualEdges=mode==='individual';setSelection([]);},edgeChoices(){return meshes.map(body=>({id:body.id,name:body.name,choices:edgeSelectionChoices(edgeIndexes.get(body.id),{individual:individualEdges})}));},view,resize,dispose(){disposed=true;observer.disconnect();controls.dispose();disposeObject(group);if(grid)disposeObject(grid);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
+  return {setMeshes,setSelection,selectEdge,setFaceSelection,selectFace,setPickMode(mode){pickMode=mode;renderer.domElement.setAttribute('aria-label',mode==='faces'?'3D model. Tap faces to select shell openings; tap again to deselect.':'3D model. Tap an edge to select its chain.');},setEdgeMode(mode){individualEdges=mode==='individual';setSelection([]);},edgeChoices(){return meshes.map(body=>({id:body.id,name:body.name,choices:edgeSelectionChoices(edgeIndexes.get(body.id),{individual:individualEdges})}));},view,resize,dispose(){disposed=true;observer.disconnect();controls.dispose();disposeObject(group);if(grid)disposeObject(grid);renderer.dispose();renderer.forceContextLoss();renderer.domElement.remove();}};
 }
