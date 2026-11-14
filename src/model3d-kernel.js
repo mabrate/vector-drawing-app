@@ -1,6 +1,10 @@
 import * as cad from 'replicad';
 import {validModel} from './model3d-data.js';
-import {planarChamfer,PLANAR_CHAMFER_TOLERANCE} from './planar-chamfer.js';
+import {buildChamfer} from './model3d-chamfer.js';
+import {chamferCatalog} from './model3d-chamfer-analysis.js';
+import {stlSolid} from './model3d-stl-kernel.js';
+import {textureSolid} from './model3d-texture.js';
+import {topology as shapeTopology} from './model3d-topology.js';
 
 // Sample geometry rather than kernel hash codes: hashes change on every rebuild.
 // An edge treatment must fail explicitly if a prior edit removes its edge.
@@ -21,11 +25,11 @@ export function faceSignature(face){
 }
 
 function faceCatalog(shape){
-  const faces=shape.faces;
+  const faces=shapeTopology(shape,'face');
   try{return faces.map((face,index)=>{
     const box=face.boundingBox;let label=`Face ${index+1} · ${face.geomType.toLowerCase().replaceAll('_',' ')}`;
     try{const [min,max]=box.bounds;if(max[2]-min[2]<1e-6)label+=` · Z ${Number(min[2].toFixed(3))} mm`;}finally{box.delete();}
-    return {key:faceSignature(face),faceId:face.hashCode,label};
+    return {key:faceSignature(face),faceId:face.hashCode,label,planar:face.geomType==='PLANE'};
   });}finally{faces.forEach(face=>face.delete());}
 }
 
@@ -101,13 +105,27 @@ function profileSolid(feature){
   }
 }
 
-export function buildModel(model,{planarFallback=true}={}){
+// Keep one immutable input prefix per worker. Failed previews never replace it;
+// a source/profile/units change gives a different key and releases the old solid.
+export function createModelBuildCache(){
+  let key=null,saved=null;
+  const clone=bodies=>new Map([...bodies].map(([id,body])=>[id,{...body,shape:body.shape.clone()}]));
+  return {get(value){return key===value&&saved?clone(saved):null;},set(value,bodies){if(key===value)return;if(saved)disposeBodies(saved);key=value;saved=clone(bodies);},dispose(){if(saved)disposeBodies(saved);saved=null;key=null;}};
+}
+
+export function buildModel(model,{planarFallback=true,cache=null,progress=()=>{},onFeatureResolved=()=>{}}={}){
   if(!validModel(model))throw Error('Invalid 3D model recipe.');
-  const bodies=new Map();
+  const treatment=model.features.findIndex(feature=>['chamfer','fillet'].includes(feature.kind)),prefix=treatment<0?model.features.length:treatment,key=JSON.stringify(model.features.slice(0,prefix));
+  const reused=cache?.get(key),bodies=reused||new Map();
   try{
-    for(const feature of model.features){
+    for(const [index,feature] of model.features.entries()){
+      if(reused&&index<prefix)continue;
+      progress(`Building ${feature.name}…`);
       try{
-        if(feature.kind==='extrusion'){
+        if(feature.kind==='stl'){
+          bodies.set(feature.id,{id:feature.id,name:feature.name,shape:stlSolid(feature),importedSTL:true});
+        }else if(feature.kind==='extrusion'){
+          if(feature.sourceError)throw Error(feature.sourceError);
           const tool=profileSolid(feature);
           if(feature.operation==='new')bodies.set(feature.id,{id:feature.id,name:feature.name,shape:tool});
           else{
@@ -117,6 +135,8 @@ export function buildModel(model,{planarFallback=true}={}){
               body.shape.delete();body.shape=next;
             }finally{tool.delete();}
           }
+        }else if(feature.kind==='texture'){
+          const body=bodies.get(feature.target),next=textureSolid(body.shape,feature,faceSignature);body.shape.delete();body.shape=next;
         }else if(feature.kind==='shell'){
           const body=bodies.get(feature.target),faces=faceCatalog(body.shape),wanted=new Set(feature.faces);
           if(faces.filter(face=>wanted.has(face.key)).length!==wanted.size)throw Error('A selected opening face changed. Remove this shell and select its opening faces again.');
@@ -134,20 +154,23 @@ export function buildModel(model,{planarFallback=true}={}){
           }catch{next?.delete();throw Error('The shell could not be built at this thickness. Reduce the wall thickness or choose different opening faces.');}
           body.shellSources={...body.shellSources,[feature.id]:faces};
           body.shape.delete();body.shape=next;
+        }else if(feature.kind==='chamfer'){
+          const body=bodies.get(feature.target),next=buildChamfer(body.shape,feature,edgeSignature,{planarFallback,progress,resolved:onFeatureResolved});
+          body.shape.delete();body.shape=next.shape;body.planarBevelTolerance=Math.max(body.planarBevelTolerance||0,next.report.tolerance);
+          body.chamfers=[...(body.chamfers||[]),next.report];
         }else{
           const body=bodies.get(feature.target),wanted=new Set(feature.edges),found=new Set();
-          for(const edge of body.shape.edges){try{const key=edgeSignature(edge);if(wanted.has(key))found.add(key);}finally{edge.delete();}}
+          for(const edge of shapeTopology(body.shape,'edge')){try{const key=edgeSignature(edge);if(wanted.has(key))found.add(key);}finally{edge.delete();}}
           if(found.size!==wanted.size)throw Error('A selected edge changed. Remove this treatment and select the edge again.');
           let next;
           try{
-            next=body.shape[feature.kind](edge=>wanted.has(edgeSignature(edge))?feature.amount:null);
+            const copy=cad.deserializeShape(body.shape.serialize());
+            try{next=copy[feature.kind](edge=>wanted.has(edgeSignature(edge))?feature.amount:null);}finally{copy.delete();}
             const checker=new (cad.getOC()).BRepCheck_Analyzer(next.wrapped);
             try{if(!checker.IsValid())throw Error('The edge treatment did not produce a valid solid.');}finally{checker.delete();}
           }catch(error){
             next?.delete();
-            if(feature.kind!=='chamfer'||!planarFallback)throw error;
-            try{next=planarChamfer(body.shape,wanted,feature.amount,edgeSignature);body.planarBevelTolerance=PLANAR_CHAMFER_TOLERANCE;}
-            catch{throw error;}
+            throw error;
           }
           body.shape.delete();body.shape=next;
         }
@@ -155,9 +178,10 @@ export function buildModel(model,{planarFallback=true}={}){
         const volume=cad.measureVolume(body.shape);
         if(!Number.isFinite(volume)||volume<=1e-7)throw Error('The operation leaves no solid. Adjust the dimensions or target.');
       }catch(error){
-        const message=typeof error?.message==='string'&&!/^\d+$/.test(error.message)?error.message:'The geometry could not be built. Try a smaller draft, wall thickness, chamfer, or fillet, and check that the profiles form valid solids.';
-        throw Error(`${feature.name}: ${message}`);
+        const message=typeof error?.message==='string'&&!/^\d+$/.test(error.message)?error.message:'The geometry could not be built. Try smaller dimensions or a simpler valid solid; imported STL meshes may need repair in the source app.';
+        const failure=Error(`${feature.name}: ${message}`);if(error.chamfer)failure.chamfer=error.chamfer;throw failure;
       }
+      if(index===prefix-1)cache?.set(key,bodies);
     }
     return bodies;
   }catch(error){disposeBodies(bodies);throw error;}
@@ -174,11 +198,11 @@ export function modelMeshes(bodies){
       if(!planeKeys.has(key)){planeKeys.set(key,planes.length);planes.push({normal,offset});}
       return planeKeys.get(key);
     }
-    for(const edge of body.shape.edges){
+    for(const edge of shapeTopology(body.shape,'edge')){
       try{
         const start=edge.startPoint,end=edge.endPoint;
         try{
-          const data={key:edgeSignature(edge),endpoints:[start.toTuple(),end.toTuple()],planeIds:[]};
+          const data={key:edgeSignature(edge),length:edge.length,endpoints:[start.toTuple(),end.toTuple()],planeIds:[]};
           // A rim left by a bevel may border only curved/sloped faces. Exact
           // curve bounds still identify level planes without relying on an
           // adjacent flat face or on a few display-mesh sample points.
@@ -191,7 +215,7 @@ export function modelMeshes(bodies){
       }finally{edge.delete();}
     }
     const adjacentNormals=new Map();
-    for(const face of body.shape.faces){
+    for(const face of shapeTopology(body.shape,'face')){
       try{
         if(face.geomType!=='PLANE')continue;
         const normal=face.normalAt(),center=face.center;
@@ -212,12 +236,12 @@ export function modelMeshes(bodies){
       if(normals?.length!==2||normals.some(n=>Math.abs(n[2])<.1||Math.abs(n[2])>.95))return true;
       return Math.abs(normals[0].reduce((sum,n,i)=>sum+n*normals[1][i],0))<Math.cos(5*Math.PI/180);
     };
-    return {id:body.id,name:body.name,mesh,faces:faceCatalog(body.shape),shellSources:body.shellSources||{},edges:{...edgeMesh,planes,edgeGroups:edgeMesh.edgeGroups.filter(visible).map(group=>({...group,...topology.get(group.edgeId)}))},volume:cad.measureVolume(body.shape),planarBevelTolerance:body.planarBevelTolerance||0};
+    return {id:body.id,name:body.name,mesh,faces:faceCatalog(body.shape),shellSources:body.shellSources||{},importedSTL:!!body.importedSTL,chamferContours:chamferCatalog(body.shape,edgeSignature),chamfers:body.chamfers||[],edges:{...edgeMesh,planes,edgeGroups:edgeMesh.edgeGroups.filter(visible).map(group=>({...group,...topology.get(group.edgeId)}))},volume:cad.measureVolume(body.shape),planarBevelTolerance:body.planarBevelTolerance||0};
   });
 }
 
 export function exportModel(bodies,format){
-  if(!bodies.size)throw Error('Add an extrusion before exporting.');
+  if(!bodies.size)throw Error('Add an extrusion or import an STL before exporting.');
   // compoundShapes consumes its inputs; exports must preserve the live model.
   const combined=cad.makeCompound([...bodies.values()].map(body=>body.shape.clone()));
   try{return format==='step'?combined.blobSTEP():combined.blobSTL({binary:true,tolerance:.02,angularTolerance:.1});}

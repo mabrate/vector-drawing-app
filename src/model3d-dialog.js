@@ -1,240 +1,468 @@
-import {emptyModel,readModel,selectionProfiles,withoutFeature,MM_PER_PIXEL,MAX_TREATMENT_EDGES,MAX_SHELL_FACES,validModel} from './model3d-data.js';
+import {emptyModel,readModel,withoutFeature,MM_PER_PIXEL,MAX_TREATMENT_EDGES,MAX_SHELL_FACES,validModel} from './model3d-data.js';
+import {drawingPaths} from './model3d-paths.js';
+import {readSTL,MAX_STL_BYTES,MAX_MODEL_TRIANGLES} from './model3d-stl.js';
+import {inspectChamfer,selectionContours,chamferLabel} from './model3d-chamfer-intent.js';
 import './model3d.css';
 
-export function installModel3D({paper,getSelection,getModel,setModel,getUnit,finish,say}){
+export function installModel3D({paper,getPaths,getSelection,getModel,setModel,getUnit,finish,say}){
   const dialog=document.createElement('dialog');dialog.id='model3d-dialog';dialog.setAttribute('aria-labelledby','model3d-title');
-  dialog.innerHTML=`<div class="model3d-heading"><div><small>EXPERIMENTAL · PLANAR MODELING</small><h2 id="model3d-title">3D model</h2></div><button id="model3d-close" aria-label="Cancel 3D modeling">×</button></div>
-    <div class="model3d-layout"><section class="model3d-preview-column" aria-label="Model preview">
-      <div class="model3d-views" role="group" aria-label="3D views"><button data-model-view="iso">Isometric</button><button data-model-view="top">Top</button><button data-model-view="front">Front</button><button data-model-view="right">Right</button><button id="model3d-fit">Fit</button></div>
-      <div id="model3d-viewer"></div><p class="model3d-gesture-help">Drag to orbit · Right-drag or two fingers to pan/zoom · Tap edges for treatments or faces for shell openings</p>
-      <label class="model3d-pick-label">Pick in preview <select id="model3d-pick-mode"><option value="edges">Edges · chamfer / fillet</option><option value="faces">Faces · shell openings</option></select></label>
-      <p id="model3d-summary">No solids yet.</p>
-    </section><section class="model3d-controls" aria-label="Model features">
-      <label class="model3d-unit">Units <select id="model3d-unit"><option value="mm">mm</option><option value="in">in</option><option value="px">px</option><option value="pt">pt</option></select></label>
-      <div class="model3d-section-title"><h3>Features</h3><button id="model3d-add">Add selected paths</button></div>
-      <p id="model3d-source"></p><ol id="model3d-features" aria-label="Feature history"></ol>
-      <fieldset id="model3d-extrusion" hidden><legend>Extrusion</legend>
-        <label>Name <input id="model3d-name" maxlength="100"></label>
-        <label>Operation <select id="model3d-operation"><option value="new">New solid</option><option value="join">Add to solid</option><option value="cut">Cut from solid</option></select></label>
-        <label id="model3d-target-label">Target <select id="model3d-target"></select></label>
-        <div class="model3d-pair"><label>Height <input id="model3d-height" type="number" step="any" min="0.0001"></label><label>Start height <input id="model3d-start" type="number" step="any"></label></div>
-        <label>Draft angle (°) <input id="model3d-draft" type="number" step="any" min="-60" max="60"></label>
-        <small>Positive draft tapers inward; negative expands outward. The profile stays fixed at the starting height.</small>
-        <button id="model3d-replace">Replace profile with selected paths</button>
-      </fieldset>
-      <fieldset id="model3d-treatment" hidden><legend>Edge treatment</legend><label>Size <input id="model3d-treatment-size" type="number" step="any" min="0.0001"></label><small id="model3d-treatment-help"></small></fieldset>
-      <fieldset id="model3d-shell-edit" hidden><legend>Edit shell</legend>
-        <label>Wall thickness <input id="model3d-shell-thickness" type="number" step="any" min="0.0001"></label>
-        <label>Walls <select id="model3d-shell-direction"><option value="inside">Inside original solid</option><option value="outside">Outside original solid</option></select></label>
-        <small>Opening faces before this shell. Check one or more; keep at least one face for the walls.</small><div id="model3d-shell-openings" class="model3d-face-list"></div>
-      </fieldset>
-      <fieldset id="model3d-shell"><legend>Create shell</legend>
-        <label>Solid <select id="model3d-shell-target"></select></label>
-        <label>Wall thickness <input id="model3d-shell-size" type="number" step="any" value="1" min="0.0001"></label>
-        <label>Walls <select id="model3d-shell-side"><option value="inside">Inside original solid</option><option value="outside">Outside original solid</option></select></label>
-        <p id="model3d-face-count">Select one or more opening faces.</p><div id="model3d-faces" class="model3d-face-list"></div>
-        <div class="model3d-pair"><button id="model3d-clear-faces" disabled>Clear faces</button><button id="model3d-add-shell" disabled>Add shell</button></div>
-        <small>Choose Faces above to tap opening surfaces, or check them here. Select the top for a cup; both end caps for a tube. Inside preserves the outside dimensions; outside preserves the cavity.</small>
-      </fieldset>
-      <fieldset id="model3d-edges"><legend>Chamfer / fillet</legend><p id="model3d-edge-count">Select an edge in the preview.</p>
-        <label>Selection <select id="model3d-edge-mode"><option value="connected">Connected in plane</option><option value="individual">Individual edges</option></select></label>
-        <label><span id="model3d-edge-picker-label">Choose a chain</span><select id="model3d-edge-picker"><option value="">Pick a chain…</option></select></label>
-        <button id="model3d-clear-edges" disabled>Clear selection</button>
-        <label>Size <input id="model3d-edge-size" type="number" step="any" value="1" min="0.0001"></label>
-        <div class="model3d-pair"><button id="model3d-chamfer" disabled>Add chamfer</button><button id="model3d-fillet" disabled>Add fillet</button></div>
-        <small>One tap selects connected edges in the same plane, including curved pieces. Separate holes and other heights stay separate. Use Individual edges for one piece. Join extrusions before treating their shared junction.</small>
-      </fieldset>
-      <p class="model3d-storage-help">Profiles are copied from the selected paths. Edit heights here, or select revised paths and replace a feature’s profile. Save an editable SVG to keep the model.</p>
-    </section></div>
+  const labels={select:'Select',extrude:'Extrude',join:'Join',cut:'Cut',shell:'Shell',chamfer:'Chamfer',fillet:'Fillet',texture:'Texture',stl:'Import STL'};
+  dialog.innerHTML=`<div class="model3d-heading"><div><small>3D MODELING</small><h2 id="model3d-title">3D workspace</h2></div><button id="model3d-close" aria-label="Cancel 3D modeling">×</button></div>
+    <div id="model3d-tools" role="toolbar" aria-label="Modeling tools">${Object.entries(labels).filter(([tool])=>tool!=='stl').map(([tool,label])=>`<button data-model-tool="${tool}" aria-pressed="false">${label}</button>`).join('')}<button id="model3d-import-stl">Import STL…</button><input id="model3d-stl-file" type="file" accept=".stl,model/stl,application/sla" hidden></div>
+    <div class="model3d-layout">
+      <aside class="model3d-objects" aria-label="Paths and bodies">
+        <details open><summary>Drawing paths <button id="model3d-paths-visibility" type="button">Hide all</button></summary><p class="model3d-help">Closed vector paths on the drawing plane.</p><div id="model3d-paths" class="model3d-object-list"></div></details>
+        <details open><summary>Bodies <button id="model3d-bodies-visibility" type="button">Hide all</button></summary><div id="model3d-bodies" class="model3d-object-list"></div></details>
+        <small class="model3d-help">Visibility affects this view only. Hidden objects stay in the drawing and CAD exports.</small>
+      </aside>
+      <section class="model3d-preview-column" aria-label="Model preview">
+        <div class="model3d-views" role="group" aria-label="3D views"><button data-model-view="iso">Isometric</button><button data-model-view="top">Top</button><button data-model-view="front">Front</button><button data-model-view="right">Right</button><button id="model3d-fit">Fit</button></div>
+        <div id="model3d-viewer"></div><p id="model3d-gesture-help">Drag to orbit · Right-drag or two fingers to pan/zoom</p>
+        <div class="model3d-pick-row"><label>Pick <select id="model3d-pick-mode"></select></label><span id="model3d-view-state">Select geometry</span></div>
+        <p id="model3d-summary">No solids yet.</p>
+      </section>
+      <section class="model3d-controls" aria-label="Active modeling tool">
+        <label class="model3d-unit">Units <select id="model3d-unit"><option value="mm">mm</option><option value="in">in</option><option value="px">px</option><option value="pt">pt</option></select></label>
+        <h3 id="model3d-tool-title">Select</h3><p id="model3d-tool-help" class="model3d-help"></p>
+        <div id="model3d-tool-panel" hidden>
+          <label>Name <input id="model3d-name" maxlength="100"></label>
+          <label id="model3d-target-label">Target body <select id="model3d-target"></select></label>
+          <fieldset id="model3d-import" hidden><legend>Imported STL</legend>
+            <label>File units <select id="model3d-stl-units"><option value="1">Millimeters</option><option value="25.4">Inches</option><option value="10">Centimeters</option></select></label>
+            <p id="model3d-import-summary" class="model3d-help"></p>
+            <small>STL has no units; Tinkercad exports normally use millimeters. Closed meshes up to 10,000 triangles and 8 MB are supported. Coplanar triangles become faces; curved regions remain faceted. Chamfers depend on the imported geometry.</small>
+          </fieldset>
+          <fieldset id="model3d-extrusion" hidden><legend>Extrusion</legend>
+            <p id="model3d-source" class="model3d-help"></p>
+            <div class="model3d-pair"><label>Height <input id="model3d-height" type="number" step="any" min="0.0001"></label><label>Start height <input id="model3d-start" type="number" step="any"></label></div>
+            <label>Draft angle (°) <input id="model3d-draft" type="number" step="any" min="-60" max="60"></label><small>Positive tapers inward; negative expands outward.</small>
+          </fieldset>
+          <fieldset id="model3d-shell" hidden><legend>Shell walls</legend>
+            <label>Wall thickness <input id="model3d-shell-thickness" type="number" step="any" min="0.0001"></label>
+            <label>Walls <select id="model3d-shell-direction"><option value="inside">Inside original solid</option><option value="outside">Outside original solid</option></select></label>
+            <small>Select one cap for a cup, both caps for a tube. Inside preserves the outside dimensions; outside preserves the cavity.</small>
+          </fieldset>
+          <fieldset id="model3d-texture" hidden><legend>Printable texture</legend>
+            <label>Pattern <select id="model3d-texture-pattern"><option value="ribs">Ribs</option><option value="dots">Round studs / dimples</option><option value="squares">Square studs / pockets</option></select></label>
+            <label>Effect <select id="model3d-texture-mode"><option value="raised">Raised</option><option value="engraved">Engraved</option></select></label>
+            <label>Height / depth <input id="model3d-texture-depth" type="number" min="0.0001" step="any"></label>
+            <label>Width / diameter <input id="model3d-texture-width" type="number" min="0.0001" step="any"></label>
+            <label>Spacing <input id="model3d-texture-spacing" type="number" min="0.0001" step="any"></label>
+            <label>Angle (°) <input id="model3d-texture-angle" type="number" min="-180" max="180" step="any"></label>
+            <small>Real geometry included in STL and STEP. Select flat faces. Width must be smaller than spacing. Up to 256 pattern elements per action; use separate actions for different textures.</small>
+          </fieldset>
+          <fieldset id="model3d-surface-selection" hidden><legend id="model3d-surface-legend">Surfaces</legend><p id="model3d-face-count"></p><div id="model3d-faces" class="model3d-face-list"></div><button id="model3d-clear-faces">Clear faces</button></fieldset>
+          <fieldset id="model3d-edges" hidden><legend>Edge treatment</legend>
+            <p class="model3d-help">Tap near a rim, or choose a named boundary below. Hover or focus a name to see it in blue.</p>
+            <div id="model3d-boundary-panel"><label>Show <select id="model3d-boundary-filter"><option value="junctions">Design/base junctions</option><option value="upper">Upper rims</option><option value="lower">Lower rims</option><option value="all">All boundaries</option></select></label><div id="model3d-boundaries" aria-label="Rims and junctions"></div></div>
+            <p id="model3d-boundary-summary" role="status"></p><p id="model3d-edge-count"></p>
+            <div class="model3d-edge-actions"><button id="model3d-focus-edges" type="button">Zoom to selection</button><button id="model3d-clear-edges">Clear edges</button></div>
+            <details id="model3d-edge-advanced"><summary>Other edges / individual pieces</summary><label>Selection <select id="model3d-edge-mode"><option value="connected">Connected in plane</option><option value="individual">Individual edges</option></select></label><label>Choose edges <select id="model3d-edge-picker"></select></label></details>
+            <label>Size <input id="model3d-edge-size" type="number" step="any" min="0.0001"></label><small>Selected boundaries stay visible in pink through the body. Empty taps keep the selection. Use Clear edges to start again.</small>
+            <div id="model3d-chamfer-info" hidden>
+              <p id="model3d-chamfer-description" role="status"></p>
+              <button id="model3d-chamfer-highlight" type="button" hidden>Highlight short segments</button>
+              <label><input id="model3d-chamfer-prepare" type="checkbox">Prepare contour for chamfer</label>
+              <small>Simplifies the selected boundary by at most 0.01 mm. The prepared bevel has up to 0.03 mm surface tolerance. Preview before applying.</small>
+              <button id="model3d-chamfer-suggest" type="button">Check smaller sizes</button>
+              <p id="model3d-chamfer-alternative" role="status" hidden></p><button id="model3d-chamfer-use-size" type="button" hidden></button>
+            </div>
+          </fieldset>
+          <p id="model3d-tool-error" role="status"></p>
+          <div class="model3d-tool-actions"><button id="model3d-preview">Preview</button><button id="model3d-edit-selection" hidden>Edit selection</button><button id="model3d-apply-tool" class="primary" disabled>Apply tool</button><button id="model3d-cancel-tool">Cancel tool</button></div>
+        </div>
+        <details id="model3d-history" open><summary>Feature history</summary><ol id="model3d-features" aria-label="Feature history"></ol></details>
+        <small class="model3d-help">Click a feature to edit it. Apply the tool to keep that change in this session; Save model keeps the session in your drawing.</small>
+      </section>
+    </div>
     <p id="model3d-status" role="status" aria-live="polite"></p>
-    <div class="model3d-footer"><div class="model3d-exports"><button id="model3d-stl" disabled>Download STL</button><button id="model3d-step" disabled>Download STEP</button></div><div><button id="model3d-cancel">Cancel</button><button id="model3d-apply" class="primary" disabled>Apply model</button></div></div>`;
+    <div id="model3d-calculation-actions"><button id="model3d-stop" type="button" hidden>Cancel calculation</button><button id="model3d-retry" type="button" hidden>Retry calculation</button></div>
+    <div class="model3d-footer"><div><button id="model3d-stl" disabled>Download STL</button><button id="model3d-step" disabled>Download STEP</button></div><div><button id="model3d-cancel">Cancel</button><button id="model3d-apply" class="primary" disabled>Save model</button></div></div>`;
   document.body.append(dialog);
   const $=id=>dialog.querySelector(`#model3d-${id}`);
   const entry=document.createElement('button');entry.id='model3d-open';entry.textContent='3D model…';document.querySelector('header nav').insertBefore(entry,document.getElementById('save'));
   const extrude=document.createElement('button');extrude.id='extrude-path';extrude.textContent='Extrude…';document.querySelector('.object-actions').append(extrude);
-  let working=emptyModel(),source=null,sourceError='',activeId=null,viewer=null,worker=null,sequence=0,inFlight=null,queued=null,valid=false,meshes=[],edges=[],faces=[],edgeOptions=[],timer=null,session=0,unit='mm',exporting=false,needsFit=true,loading=false;
-  const unitFactors={mm:1,in:25.4,px:MM_PER_PIXEL,pt:25.4/72};
-  const shellCatalogs=new Map();
-  const active=()=>working.features.find(feature=>feature.id===activeId);
-  const format=value=>String(Number((value/unitFactors[unit]).toFixed(6)));
+  const factors={mm:1,in:25.4,px:MM_PER_PIXEL,pt:25.4/72};
+  let working=emptyModel(),catalog=[],pathIds=[],hiddenPaths=new Set(),hiddenBodies=new Set(),bodyId=null;
+  let tool='select',draft=null,editingId=null,replacingProfile=false,edges=[],faces=[],edgeOptions=[],pickMode='bodies',previewing=false;
+  let viewer=null,worker=null,sequence=0,latestId=0,inFlight=null,queued=null,timer=null,session=0,loading=false,exporting=false;
+  let inputMeshes=[],displayMeshes=[],resultModel=null,workingValid=false,inputReady=false,resultValid=false,unit='mm',needsFit=true;
+  let watchdog=null,retryRequest=null,pendingSuggestion=null,chamferReport=null,lastFailure=null;
+  let boundaryFilterBody=null,boundaryFilterTouched=false;
+  const format=value=>String(Number((value/factors[unit]).toFixed(6)));
+  const extrusionTool=()=>['extrude','join','cut'].includes(tool);
+  const createsBody=()=>['extrude','stl'].includes(tool);
+  const faceTool=()=>['shell','texture'].includes(tool);
+  const busy=()=>loading||exporting||!!inFlight||!!queued||!!timer;
+  const inputModel=()=>editingId?{...working,features:working.features.slice(0,working.features.findIndex(feature=>feature.id===editingId))}:working;
   function status(message,error=false){$('status').textContent=message;$('status').classList.toggle('model3d-error',error);}
-  function enable(){
-    const ready=valid&&!inFlight&&!queued&&!timer&&!loading&&!exporting;
-    $('add').disabled=$('replace').disabled=!source||loading||exporting;
-    $('extrusion').disabled=$('treatment').disabled=$('shell-edit').disabled=loading||exporting;
-    $('shell').disabled=!ready||!meshes.length;
-    $('apply').disabled=!ready;$('stl').disabled=$('step').disabled=!ready||!meshes.length;
-    $('chamfer').disabled=$('fillet').disabled=!ready||!edges.length;
-    $('clear-edges').disabled=!edges.length;
-    $('add-shell').disabled=!ready||!faces.length||faces.length>MAX_SHELL_FACES;
-    $('clear-faces').disabled=!faces.length;
-  }
-  function onSelection(next){edges=next;const target=$('edge-mode').value==='individual'?'edge':'chain';$('edge-count').textContent=edges.length?`${edges.length} edge${edges.length===1?'':'s'} selected. Tap the ${target} again to deselect.`:'Select an edge in the preview.';enable();}
-  function onFaceSelection(next){
-    faces=next;if(faces.length)$('shell-target').value=faces[0].body;
-    $('face-count').textContent=faces.length?`${faces.length} opening face${faces.length===1?'':'s'} selected.`:'Select one or more opening faces.';
-    populateFaces();enable();
-  }
-  function faceChecks(container,catalog,selected,onChange){
-    container.replaceChildren();
-    for(const face of catalog){
-      const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.checked=selected.includes(face.key);input.value=face.key;
-      input.onchange=()=>onChange(face.key);label.append(input,document.createTextNode(face.label));container.append(label);
+  function errorForTool(){
+    if(!draft)return '';
+    if(extrusionTool()&&replacingProfile&&!pathIds.length)return 'Select one or more visible closed paths in the view or the path list.';
+    if(extrusionTool()&&(!Number.isFinite(draft.height)||draft.height<=0||draft.height>10000||!Number.isFinite(draft.start)||Math.abs(draft.start)>10000||!Number.isFinite(draft.draft)||Math.abs(draft.draft)>60))return 'Enter a positive height, a valid start height, and draft between −60° and 60°.';
+    if(!createsBody()&&!draft.target)return 'Select a target body.';
+    if(tool==='stl')return Number.isFinite(draft.scale)&&draft.scale>0?'':'Choose the STL file units.';
+    if(tool==='texture'){
+      if(!faces.length||faces.length>16)return 'Select 1–16 flat faces on a single body.';
+      if(![draft.depth,draft.width,draft.spacing].every(n=>Number.isFinite(n)&&n>0&&n<=1000)||draft.width>=draft.spacing)return 'Use positive dimensions up to 1000 mm, with width smaller than spacing.';
+      if(!Number.isFinite(draft.angle)||Math.abs(draft.angle)>180)return 'Enter an angle between −180° and 180°.';
+      return '';
     }
+    if(tool==='shell'&&(!faces.length||faces.length>MAX_SHELL_FACES))return 'Select one or more opening faces on a single body.';
+    if(['chamfer','fillet'].includes(tool)&&(!edges.length||edges.length>MAX_TREATMENT_EDGES))return 'Select edges on a single body.';
+    const size=tool==='shell'?draft.thickness:draft.amount;
+    if(!extrusionTool()&&(!Number.isFinite(size)||size<=0||size>1000))return 'Enter a size greater than zero and no more than 1000 mm.';
+    return '';
   }
-  function populateFaces(){
-    const previous=$('shell-target').value;$('shell-target').replaceChildren(...meshes.map(body=>new Option(body.name,body.id)));
-    if(meshes.some(body=>body.id===previous))$('shell-target').value=previous;
-    const body=meshes.find(body=>body.id===$('shell-target').value);
-    faceChecks($('faces'),body?.faces||[],faces.filter(face=>face.body===body?.id).map(face=>face.key),key=>{setPickMode('faces');viewer?.selectFace({body:body.id,key});});
+  function enable(){
+    const idle=!busy();
+    dialog.setAttribute('aria-busy',String(!idle));
+    viewer?.setPickMode(previewing||!idle?'none':pickMode);
+    $('apply').disabled=!idle||!workingValid||!!draft;
+    $('stl').disabled=$('step').disabled=!idle||!workingValid||!!draft||!working.features.length;
+    $('preview').disabled=!idle||!inputReady||!!errorForTool();$('apply-tool').disabled=!idle||!resultValid;
+    $('edit-selection').hidden=!previewing;$('preview').hidden=previewing;
+    $('tool-panel').inert=loading||exporting;
+    for(const button of dialog.querySelectorAll('[data-model-tool]'))button.disabled=loading||exporting;
+    $('import-stl').disabled=loading||exporting;
+    $('pick-mode').disabled=previewing||busy();
+    $('clear-faces').disabled=previewing||!faces.length;$('clear-edges').disabled=previewing||!edges.length;
+    $('edge-mode').disabled=$('edge-picker').disabled=previewing||!inputReady;
+    $('target').disabled=previewing||!inputReady;
+    $('tool-error').textContent=errorForTool();
+    $('view-state').textContent=previewing?'Result preview':'Select geometry';
+    $('stop').hidden=!inFlight;$('retry').hidden=!retryRequest||!idle;
+    $('chamfer-suggest').disabled=!idle||!inputReady||tool!=='chamfer'||!!errorForTool();
+    $('chamfer-prepare').disabled=!idle||(!chamferReport?.contourMethod&&!$('chamfer-prepare').checked);
+    $('chamfer-use-size').disabled=!idle;
+    $('chamfer-highlight').disabled=!idle||displayMeshes!==inputMeshes;
+    $('boundary-filter').disabled=!idle||previewing||!inputReady;
+    $('focus-edges').disabled=!idle||previewing||!edges.length;
+    for(const button of $('boundaries').querySelectorAll('button'))button.disabled=!idle||previewing||!inputReady||hiddenBodies.has(draft?.target);
+    for(const button of dialog.querySelectorAll('[data-object-pick]'))button.disabled=previewing||busy()||button.dataset.unavailable==='true'||(button.dataset.objectPick==='path'&&!['select','extrude','join','cut'].includes(tool));
   }
-  function showShellOpenings(){
-    const feature=active();if(feature?.kind!=='shell')return;
-    const catalog=shellCatalogs.get(feature.id)||[];
-    faceChecks($('shell-openings'),catalog,feature.faces,key=>{
-      feature.faces=feature.faces.includes(key)?feature.faces.filter(face=>face!==key):[...feature.faces,key];
-      updateList();schedule();
-    });
+  function invalidate(){
+    resultValid=false;resultModel=null;clearTimeout(timer);timer=null;queued=null;latestId=++sequence;
+    pendingSuggestion=null;lastFailure=null;$('chamfer-alternative').hidden=$('chamfer-use-size').hidden=true;viewer?.setProblemEdges([]);
+    retryRequest=null;
   }
-  function setPickMode(mode){$('pick-mode').value=mode;viewer?.setPickMode(mode);}
-  function updateList(){
+  function candidate(){
+    if(errorForTool())throw Error(errorForTool());
+    const feature=structuredClone(draft);
+    if(extrusionTool()&&replacingProfile){
+      const paths=catalog.filter(path=>pathIds.includes(path.id));
+      feature.profile=paths.flatMap(path=>structuredClone(path.profile));feature.sourceIds=paths.map(path=>path.sourceId);delete feature.sourceError;
+    }
+    if(faceTool())feature.faces=faces.map(face=>face.key);
+    if(['chamfer','fillet'].includes(tool))feature.edges=edges.map(edge=>edge.key);
+    if(tool==='chamfer'){
+      const selection=selectionContours(inputMeshes.find(body=>body.id===feature.target)?.chamferContours||[],feature.edges);
+      if(selection.complete)feature.intent={version:1,contours:selection.contours.map(contour=>contour.intent)};else delete feature.intent;
+    }
+    const model=editingId?{...working,features:working.features.map(entry=>entry.id===editingId?feature:entry)}:{...working,features:[...working.features,feature]};
+    if(!validModel(model))throw Error('Check the feature dimensions, selected paths, and earlier target bodies. A model supports up to 100 features.');
+    return model;
+  }
+  function build(model,purpose){
+    clearTimeout(timer);timer=null;
+    if(purpose==='idle')workingValid=false;
+    queued={id:++sequence,type:'build',model:structuredClone(model),purpose};latestId=queued.id;enable();pump();
+  }
+  function createWorker(){
+    const instance=new Worker(new URL('./model3d.worker.js',import.meta.url),{type:'module'});worker=instance;
+    instance.onmessage=event=>{if(worker===instance)receive(event);};
+    instance.onerror=()=>{if(worker===instance)abortCalculation('The local 3D engine stopped. Your model and settings are kept. Retry the calculation.',true);};
+  }
+  function pump(){
+    if(inFlight||!queued)return;
+    try{if(!worker)createWorker();}catch{retryRequest=queued;queued=null;loading=false;exporting=false;status('The local 3D engine could not start. Your settings are kept. Retry the calculation.',true);enable();return;}
+    inFlight=queued;queued=null;retryRequest=null;
+    exporting=inFlight.type==='export';
+    watchdog=setTimeout(()=>abortCalculation('This calculation exceeded two minutes and was stopped. Your model and settings are kept. Try a smaller size, or retry.',true),120000);
+    worker.postMessage(inFlight);enable();
+  }
+  function abortCalculation(message='Calculation canceled. Your model and settings are kept.',retry=false){
+    retryRequest=inFlight?{...inFlight}:null;clearTimeout(watchdog);watchdog=null;worker?.terminate();worker=null;inFlight=null;queued=null;loading=false;exporting=false;
+    clearTimeout(timer);timer=null;latestId=++sequence;resultValid=false;pendingSuggestion=null;
+    if(previewing&&inputReady){previewing=false;showMeshes(inputMeshes);if(!retry)retryRequest=null;}
+    if(message)status(message,true);enable();
+  }
+  function setPickMode(mode){pickMode=mode;$('pick-mode').value=mode;viewer?.setPickMode(previewing?'none':mode);}
+  function pickOptions(){
+    const options=['select','stl'].includes(tool)?[['bodies','Bodies'],...(tool==='select'?[['paths','Drawing paths']]:[])]:extrusionTool()?[['paths','Drawing paths'],...(tool==='extrude'?[]:[['bodies','Target body']])]:faceTool()?[['faces',tool==='texture'?'Texture faces':'Opening faces']]:[['edges','Edges']];
+    $('pick-mode').replaceChildren(...options.map(([id,label])=>new Option(label,id)));
+    setPickMode(options.some(([id])=>id===pickMode)?pickMode:options[0][0]);
+  }
+  function syncSelection(){viewer?.setSelections({paths:pathIds,edges,faces,body:bodyId});}
+  function showObjects(){
+    function list(container,items,hidden,type,selected){
+      container.replaceChildren();
+      if(!items.length){const p=document.createElement('p');p.className='model3d-help';p.textContent=type==='path'?'No vector paths in this drawing.':'No bodies yet.';container.append(p);}
+      for(const item of items){
+        const row=document.createElement('div');row.className='model3d-object-row';
+        const pick=document.createElement('button');pick.textContent=item.name;pick.dataset.objectPick=type;pick.dataset.id=item.id;pick.dataset.unavailable=String(hidden.has(item.id)||!!item.error);pick.title=item.error||item.name;pick.setAttribute('aria-pressed',String(selected(item.id)));if(item.error)pick.textContent+=' (open or unsupported)';
+        pick.onclick=()=>{if(type==='path')onPaths(pathIds.includes(item.id)?pathIds.filter(id=>id!==item.id):[...pathIds,item.id]);else onBody(item.id);};
+        const toggle=document.createElement('button');toggle.textContent=hidden.has(item.id)?'Show':'Hide';toggle.setAttribute('aria-label',`${toggle.textContent} ${item.name}`);toggle.setAttribute('aria-pressed',String(!hidden.has(item.id)));toggle.onclick=()=>{
+          hidden.has(item.id)?hidden.delete(item.id):hidden.add(item.id);
+          if(!previewing&&hidden.has(item.id)){
+            if(type==='path'&&pathIds.includes(item.id))onPaths(pathIds.filter(id=>id!==item.id));
+            if(type==='body'&&bodyId===item.id)onBody(null);
+          }
+          viewer?.setVisibility({paths:hiddenPaths,bodies:hiddenBodies});populateEdges();showObjects();enable();
+        };
+        row.append(pick,toggle);container.append(row);
+      }
+    }
+    list($('paths'),catalog,hiddenPaths,'path',id=>pathIds.includes(id));list($('bodies'),displayMeshes,hiddenBodies,'body',id=>bodyId===id);
+    $('paths-visibility').textContent=catalog.some(path=>!hiddenPaths.has(path.id))?'Hide all':'Show all';
+    $('bodies-visibility').textContent=displayMeshes.some(body=>!hiddenBodies.has(body.id))?'Hide all':'Show all';enable();
+  }
+  function onPaths(next){
+    if(previewing)return;
+    pathIds=next.filter(id=>catalog.some(path=>path.id===id&&!path.error)&&!hiddenPaths.has(id));
+    if(tool==='select')setPickMode('paths');
+    if(draft&&extrusionTool())replacingProfile=true;
+    invalidate();syncSelection();showObjects();showSource();enable();
+  }
+  function onBody(id){
+    if(previewing)return;
+    if(id&&hiddenBodies.has(id))return;
+    bodyId=id;
+    if(tool==='select')setPickMode('bodies');
+    if(draft&&!createsBody()){
+      if(draft.target!==id){edges=[];faces=[];}draft.target=id;
+      if(extrusionTool())setPickMode('paths');
+    }
+    invalidate();syncSelection();populateInputs();showObjects();enable();
+  }
+  function onEdges(next){if(previewing)return;edges=next;bodyId=edges[0]?.body||bodyId;if(draft)draft.target=edges[0]?.body||bodyId;invalidate();syncSelection();populateInputs();showObjects();enable();}
+  function onFaces(next){
+    if(previewing)return;
+    faces=tool==='texture'?next.filter(item=>inputMeshes.find(body=>body.id===item.body)?.faces.find(face=>face.key===item.key)?.planar):next;
+    if(faces.length!==next.length)status('Choose a flat face for printable texture. Curved faces are not supported.',true);
+    bodyId=faces[0]?.body||bodyId;if(draft)draft.target=faces[0]?.body||bodyId;invalidate();syncSelection();populateInputs();showObjects();enable();
+  }
+  function showSource(){
+    $('source').textContent=editingId&&!replacingProfile?(draft.sourceIds?'Linked to source paths. Path edits update this feature. Pick paths here to relink it.':'Using a saved profile without a source link. Pick drawing paths to link this feature.'):`${pathIds.length} drawing path${pathIds.length===1?'':'s'} selected. Changes to these paths will update this feature.`;
+  }
+  function populateEdges(){
+    const individual=$('edge-mode').value==='individual';edgeOptions=[];$('edge-picker').replaceChildren(new Option('Pick in preview or choose…',''));
+    for(const body of viewer?.edgeChoices()||[]){const group=document.createElement('optgroup');group.label=body.name;body.choices.forEach((edge,index)=>{
+      const contour=inputMeshes.find(mesh=>mesh.id===body.id)?.chamferContours.find(contour=>contour.keys.length===edge.keys.length&&contour.keys.every(key=>edge.keys.includes(key)));
+      const detail=contour?` · ${chamferLabel(contour.kind)} · Z ${format(contour.z)} ${unit}`:'';
+      edgeOptions.push({body:body.id,key:edge.key,chainId:edge.chainId});group.append(new Option(individual?`Edge ${index+1}`:`Chain ${index+1} (${edge.keys.length} edges)${detail}`,String(edgeOptions.length-1)));
+    });$('edge-picker').append(group);}
+  }
+  function populateInputs(){
+    const target=draft?.target||bodyId;$('target').replaceChildren(...inputMeshes.map(body=>{const option=new Option(body.name,body.id);option.disabled=hiddenBodies.has(body.id);return option;}));$('target').value=target||'';
+    $('edge-count').textContent=`${edges.length} edge${edges.length===1?'':'s'} selected.`;$('face-count').textContent=tool==='texture'?`${faces.length} surface${faces.length===1?'':'s'} selected.`:`${faces.length} opening face${faces.length===1?'':'s'} selected.`;
+    const body=inputMeshes.find(body=>body.id===target);$('faces').replaceChildren();
+    for(const face of body?.faces||[]){
+      const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=face.key;input.checked=faces.some(item=>item.body===body.id&&item.key===face.key);input.disabled=previewing||hiddenBodies.has(body.id)||(tool==='texture'&&!face.planar);
+      input.onchange=()=>viewer?.selectFace({body:body.id,key:face.key});label.append(input,document.createTextNode(face.label+(tool==='texture'&&!face.planar?' · curved':'')));$('faces').append(label);
+    }
+    showSource();
+    showChamferInfo();
+    populateBoundaries();
+  }
+  function populateBoundaries(){
+    const panel=$('boundary-panel'),container=$('boundaries'),individual=$('edge-mode').value==='individual';
+    panel.hidden=individual;
+    const body=inputMeshes.find(body=>body.id===draft?.target),catalog=body?.chamferContours||[];
+    if(boundaryFilterBody!==body?.id){boundaryFilterBody=body?.id;boundaryFilterTouched=false;}
+    if(!boundaryFilterTouched)$('boundary-filter').value=catalog.some(contour=>contour.side===1&&contour.kind.endsWith('junction'))?'junctions':'upper';
+    const filter=$('boundary-filter').value,selected=new Set(edges.filter(edge=>edge.body===body?.id).map(edge=>edge.key));
+    const selection=selectionContours(catalog,[...selected]);
+    $('boundary-summary').textContent=selection.contours.length?`${selection.contours.length} complete ${selection.contours.length===1?'boundary':'boundaries'} selected${selection.complete?'.':' plus individual pieces.'}`:edges.length?'Individual edge pieces selected.':'No edges selected.';
+    const active=document.activeElement?.closest('[data-boundary]')?.dataset.boundary;container.replaceChildren();
+    if(!body||hiddenBodies.has(body.id)){container.textContent='Select a visible target body.';return;}
+    const visible=catalog.map((contour,index)=>({...contour,index})).filter(contour=>filter==='all'||filter==='junctions'&&contour.side===1&&contour.kind.endsWith('junction')||filter==='upper'&&contour.side===1&&contour.kind.endsWith('rim')||filter==='lower'&&contour.side===-1&&contour.kind.endsWith('rim')).sort((a,b)=>b.z-a.z||a.kind.localeCompare(b.kind)||a.index-b.index);
+    if(!visible.length){container.textContent='No matching complete boundaries. Try All boundaries, or use Other edges.';return;}
+    function toggle(contours){
+      if(previewing||busy())return;
+      const keys=new Set(contours.flatMap(contour=>contour.keys)),current=edges.filter(edge=>edge.body===body.id),chosen=new Set(current.map(edge=>edge.key)),remove=[...keys].every(key=>chosen.has(key));
+      viewer?.setSelection(remove?current.filter(edge=>!keys.has(edge.key)):[...current,...[...keys].filter(key=>!chosen.has(key)).map(key=>({body:body.id,key}))]);
+    }
+    function buttonFor(contours,label,id,detail){
+      const button=document.createElement('button');button.type='button';button.dataset.boundary=id;
+      button.setAttribute('aria-pressed',String(contours.every(contour=>contour.keys.every(key=>selected.has(key)))));button.disabled=previewing||busy()||!inputReady;
+      const name=document.createElement('span');name.textContent=label;button.append(name);if(detail){const small=document.createElement('small');small.textContent=detail;button.append(small);}
+      button.onclick=()=>toggle(contours);
+      const show=()=>{if(!previewing&&!busy())viewer?.previewEdges(contours.flatMap(contour=>contour.keys.map(key=>({body:body.id,key}))));};
+      button.onpointerenter=event=>{if(event.pointerType!=='touch')show();};button.onfocus=show;
+      button.onpointerleave=button.onblur=()=>viewer?.previewEdges();return button;
+    }
+    const groups=new Map();for(const contour of visible){const key=`${contour.z}:${contour.side}:${contour.kind.endsWith('junction')?'junctions':'rims'}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(contour);}
+    for(const [groupId,contours] of groups){
+      if(contours.length>1){const junctions=contours[0].kind.endsWith('junction');container.append(buttonFor(contours,`All ${junctions?'junctions':'rims'} at Z ${format(contours[0].z)} ${unit}`,`group:${groupId}`,`${contours.length} boundaries`));}
+      const counts=new Map();for(const contour of contours){const count=(counts.get(contour.kind)||0)+1;counts.set(contour.kind,count);container.append(buttonFor([contour],`${chamferLabel(contour.kind)} ${count}`,String(contour.index),`Z ${format(contour.z)} ${unit} · ${contour.side===1?'upper':'lower'} · ${contour.keys.length} ${contour.keys.length===1?'piece':'pieces'}`));}
+    }
+    if(active)container.querySelector(`[data-boundary="${CSS.escape(active)}"]`)?.focus({preventScroll:true});
+  }
+  function showChamferInfo(){
+    const body=inputMeshes.find(body=>body.id===draft?.target);$('chamfer-info').hidden=tool!=='chamfer';
+    if(tool!=='chamfer'){chamferReport=null;return;}
+    chamferReport=inspectChamfer(body?.chamferContours||[],edges.map(edge=>edge.key),draft.amount,body?.edges.edgeGroups||[],draft.cleanupTolerance||0);
+    const details=[edges.length?chamferReport.label+'.':'Select a boundary to inspect it.'],distance=value=>String(Number((value/factors[unit]).toPrecision(4)));
+    if(chamferReport.height!==null)details.push(`Available wall height: ${distance(chamferReport.height)} ${unit}.`);
+    if(chamferReport.clearance!==null)details.push(`Space to nearby boundaries: ${distance(chamferReport.clearance)} ${unit}.`);
+    if(chamferReport.shortEdges.length)details.push(`${chamferReport.shortEdges.length} short segments detected.`);
+    if(chamferReport.problem)details.push(chamferReport.problem);
+    if(lastFailure)details.push(lastFailure);
+    $('chamfer-description').textContent=details.join(' ');$('chamfer-highlight').hidden=!chamferReport.shortEdges.length;
+    $('chamfer-prepare').checked=draft.cleanupTolerance===.01;
+    $('chamfer-info').dataset.kind=chamferReport.label;$('chamfer-info').dataset.problem=String(!!chamferReport.problem);
+  }
+  function showImportSummary(){
+    if(!draft?.mesh)return;
+    const min=[Infinity,Infinity,Infinity],max=[-Infinity,-Infinity,-Infinity];
+    draft.mesh.vertices.forEach((value,index)=>{const axis=index%3;min[axis]=Math.min(min[axis],value);max[axis]=Math.max(max[axis],value);});
+    $('import-summary').textContent=`${draft.mesh.triangles.length/3} triangles · ${min.map((value,axis)=>format((max[axis]-value)*draft.scale)).join(' × ')} ${unit}`;
+  }
+  function showFields(){
+    $('tool-title').textContent=(editingId?'Edit ':'')+labels[tool];$('tool-panel').hidden=!draft;
+    $('extrusion').hidden=!extrusionTool();$('import').hidden=tool!=='stl';$('texture').hidden=tool!=='texture';$('shell').hidden=tool!=='shell';$('surface-selection').hidden=!faceTool();$('surface-legend').textContent=tool==='texture'?'Texture faces':'Opening faces';$('edges').hidden=!['chamfer','fillet'].includes(tool);$('target-label').hidden=!draft||createsBody();
+    const help={select:'Choose a modeling tool above, or select a path or body to inspect it. Use Hide to reach geometry behind other objects.',extrude:'Select drawing paths, set the height, then preview and apply the extrusion.',join:'Select drawing paths and a target body. The extrusion adds material to that body.',cut:'Select drawing paths and a target body. The extrusion removes material from that body.',shell:'Select opening faces on a body. Preview the wall thickness before applying the shell.',chamfer:'Select edges or coplanar chains, set their size, then preview the bevel.',fillet:'Select edges or coplanar chains, set their size, then preview the rounding.',texture:'Select flat surfaces, choose a raised or engraved pattern, then preview the printable geometry.',stl:'Import a closed STL as a solid. Preview and apply it, then choose Chamfer, Shell, Texture, or another modeling tool.'};
+    $('tool-help').textContent=help[tool];
+    for(const button of dialog.querySelectorAll('[data-model-tool]'))button.setAttribute('aria-pressed',String(button.dataset.modelTool===tool));
+    if(draft){$('name').value=draft.name;if(extrusionTool()){for(const key of ['height','start'])$(key).value=format(draft[key]);$('draft').value=draft.draft;}else if(tool==='shell'){$('shell-thickness').value=format(draft.thickness);$('shell-direction').value=draft.direction;}else if(tool==='stl'){$('stl-units').value=String(draft.scale);showImportSummary();}
+      else if(tool==='texture'){$('texture-pattern').value=draft.pattern;$('texture-mode').value=draft.mode;for(const key of ['width','spacing','depth'])$('texture-'+key).value=format(draft[key]);$('texture-angle').value=draft.angle;}
+      else $('edge-size').value=format(draft.amount);}
+    $('import-stl').setAttribute('aria-pressed',String(tool==='stl'));
+    $('apply-tool').textContent=editingId?'Apply edit':tool==='stl'?'Apply import':`Apply ${labels[tool].toLowerCase()}`;pickOptions();populateInputs();enable();
+  }
+  function updateHistory(){
     $('features').replaceChildren();
     for(const feature of working.features){
-      const row=document.createElement('li'),button=document.createElement('button'),remove=document.createElement('button');
-      button.textContent=feature.name;button.setAttribute('aria-pressed',String(feature.id===activeId));button.onclick=()=>{activeId=feature.id;updateList();showFeature();};
-      const detail=document.createElement('small');detail.textContent=feature.kind==='extrusion'?`${{new:'New solid',join:'Add',cut:'Cut'}[feature.operation]} · ${format(feature.height)} ${unit}${feature.draft?` · ${feature.draft}°`:''}`:feature.kind==='shell'?`Shell · ${format(feature.thickness)} ${unit} · ${feature.direction} · ${feature.faces.length} opening${feature.faces.length===1?'':'s'}`:`${feature.kind} · ${format(feature.amount)} ${unit}`;button.append(detail);
-      remove.textContent='×';remove.setAttribute('aria-label',`Remove ${feature.name}`);remove.onclick=()=>{working=withoutFeature(working,feature.id);if(!working.features.some(feature=>feature.id===activeId))activeId=working.features.at(-1)?.id||null;updateList();showFeature();schedule();};
-      row.append(button,remove);$('features').append(row);
+      const row=document.createElement('li'),button=document.createElement('button'),remove=document.createElement('button');button.textContent=feature.name;button.setAttribute('aria-pressed',String(feature.id===editingId));
+      const detail=document.createElement('small');detail.textContent=feature.kind==='extrusion'?`${{new:'Extrude',join:'Join',cut:'Cut'}[feature.operation]} · ${format(feature.height)} ${unit}`:feature.kind==='shell'?`Shell · ${format(feature.thickness)} ${unit} · ${feature.direction}`:feature.kind==='stl'?`STL · ${feature.mesh.triangles.length/3} triangles`:feature.kind==='texture'?`${feature.mode} ${feature.pattern} · ${format(feature.depth)} ${unit}`:`${feature.kind} · ${format(feature.amount)} ${unit}`;button.append(detail);button.onclick=()=>beginTool(feature.kind==='extrusion'?{new:'extrude',join:'join',cut:'cut'}[feature.operation]:feature.kind,feature);
+      remove.textContent='×';remove.setAttribute('aria-label',`Remove ${feature.name}`);remove.onclick=()=>{cancelDraft(false);working=withoutFeature(working,feature.id);updateHistory();build(working,'idle');};row.append(button,remove);$('features').append(row);
     }
   }
-  function targetOptions(feature){
-    $('target').replaceChildren();
-    const position=working.features.indexOf(feature);
-    for(const body of working.features.slice(0,position).filter(item=>item.kind==='extrusion'&&item.operation==='new')){
-      const option=document.createElement('option');option.value=body.id;option.textContent=body.name;$('target').append(option);
-    }
-    if(feature.target)$('target').value=feature.target;
-    $('target-label').hidden=feature.operation==='new';
-    for(const option of $('operation').options)option.disabled=option.value!=='new'&&!$('target').options.length;
+  function beginTool(next,feature=null,mesh=null,nameOverride=null){
+    if(inFlight)abortCalculation(null);
+    invalidate();tool=next;editingId=feature?.id||null;previewing=false;edges=[];faces=[];inputReady=false;boundaryFilterTouched=false;$('edge-advanced').open=false;
+    if(tool==='select'){draft=null;showFields();updateHistory();build(working,'idle');return;}
+    const id=feature?.id||crypto.randomUUID(),name=nameOverride||`${labels[tool]} ${working.features.filter(entry=>entry.kind===(extrusionTool()?'extrusion':tool)).length+1}`;
+    draft=feature?structuredClone(feature):tool==='stl'?{id,name,kind:'stl',operation:'new',target:null,scale:1,mesh}:tool==='texture'?{id,name,kind:'texture',target:bodyId,faces:[],pattern:'ribs',mode:'raised',depth:.5,width:1,spacing:4,angle:0}:extrusionTool()?{id,name,kind:'extrusion',operation:{extrude:'new',join:'join',cut:'cut'}[tool],target:tool==='extrude'?null:bodyId,profile:[],height:10,start:0,draft:0}:tool==='shell'?{id,name,kind:'shell',target:bodyId,thickness:1,direction:'inside',faces:[]}:{id,name,kind:tool,target:bodyId,amount:1,edges:[]};
+    replacingProfile=!feature;if(feature){pathIds=[];bodyId=feature.target||feature.id;edges=(feature.edges||[]).map(key=>({body:feature.target,key}));faces=(feature.faces||[]).map(key=>({body:feature.target,key}));}
+    pickMode=extrusionTool()?'paths':faceTool()?'faces':tool==='stl'?'bodies':'edges';showFields();syncSelection();updateHistory();showObjects();status(tool==='stl'?'Choose the file units, then Preview and Apply import.':'Select the geometry for this tool.');build(inputModel(),'input');
   }
-  function showFeature(){
-    const feature=active();$('extrusion').hidden=feature?.kind!=='extrusion';$('treatment').hidden=!['chamfer','fillet'].includes(feature?.kind);$('shell-edit').hidden=feature?.kind!=='shell';
-    if(!feature)return;
-    if(feature.kind==='extrusion'){
-      $('name').value=feature.name;$('operation').value=feature.operation;targetOptions(feature);
-      for(const key of ['height','start'])$(key).value=format(feature[key]);$('draft').value=feature.draft;
-    }else if(feature.kind==='shell'){$('shell-thickness').value=format(feature.thickness);$('shell-direction').value=feature.direction;showShellOpenings();}
-    else{$('treatment-size').value=format(feature.amount);$('treatment-help').textContent=`${feature.edges.length} edge${feature.edges.length===1?'':'s'} · ${feature.kind}. Remove this feature to select different edges.`;}
+  function cancelDraft(rebuild=true){
+    invalidate();tool='select';draft=null;editingId=null;previewing=false;edges=[];faces=[];pickMode='bodies';showFields();syncSelection();updateHistory();if(rebuild)build(working,'idle');
   }
-  function controlsChanged(){
-    const feature=active();if(!feature)return;
-    if(feature.kind==='extrusion'){
-      feature.name=$('name').value.trim()||'Extrusion';feature.operation=$('operation').value;
-      feature.target=feature.operation==='new'?null:$('target').value||null;
-      feature.height=$('height').valueAsNumber*unitFactors[unit];feature.start=$('start').valueAsNumber*unitFactors[unit];feature.draft=$('draft').valueAsNumber;
-      targetOptions(feature);
-    }else if(feature.kind==='shell'){feature.thickness=$('shell-thickness').valueAsNumber*unitFactors[unit];feature.direction=$('shell-direction').value;}
-    else feature.amount=$('treatment-size').valueAsNumber*unitFactors[unit];
-    updateList();schedule();
+  function preview(){
+    let model;try{model=candidate();}catch(error){status(error.message,true);enable();return;}
+    if(tool==='stl')needsFit=true;
+    previewing=true;resultValid=false;viewer?.setPickMode('none');populateInputs();showObjects();status('Building tool preview…');build(model,'preview');
   }
-  function cancelPending(){clearTimeout(timer);timer=null;queued=null;}
-  function schedule(){
-    clearTimeout(timer);valid=false;enable();status('Updating preview…');
-    timer=setTimeout(()=>{timer=null;requestBuild();},300);
+  function parametersChanged(){
+    if(!draft)return;draft.name=$('name').value.trim()||labels[tool];
+    if(extrusionTool()){draft.height=$('height').valueAsNumber*factors[unit];draft.start=$('start').valueAsNumber*factors[unit];draft.draft=$('draft').valueAsNumber;}
+    else if(tool==='shell'){draft.thickness=$('shell-thickness').valueAsNumber*factors[unit];draft.direction=$('shell-direction').value;}
+    else if(tool==='texture'){draft.pattern=$('texture-pattern').value;draft.mode=$('texture-mode').value;for(const key of ['width','spacing','depth'])draft[key]=$('texture-'+key).valueAsNumber*factors[unit];draft.angle=$('texture-angle').valueAsNumber;}
+    else if(tool==='stl'){draft.scale=Number($('stl-units').value);showImportSummary();}
+    else{draft.amount=$('edge-size').valueAsNumber*factors[unit];if(tool==='chamfer'){if($('chamfer-prepare').checked)draft.cleanupTolerance=.01;else delete draft.cleanupTolerance;}}
+    pendingSuggestion=null;lastFailure=null;$('chamfer-alternative').hidden=$('chamfer-use-size').hidden=true;showChamferInfo();
+    retryRequest=null;
+    if(previewing){invalidate();if(!errorForTool()){status('Updating tool preview…');timer=setTimeout(()=>{timer=null;preview();},300);}}enable();
   }
-  function requestBuild(){
-    if(!dialog.open||!worker)return;
-    if(!validModel(working)){queued=null;valid=false;status('Check the dimensions and target. Height and wall thickness must be positive, draft must be between −60° and 60°, shells need opening faces, and each operation needs an earlier solid.',true);enable();return;}
-    queued={id:++sequence,type:'build',model:structuredClone(working)};valid=false;enable();pump();
-  }
-  function pump(){if(inFlight||!queued||!worker)return;inFlight=queued;queued=null;worker.postMessage(inFlight);}
-  function populateEdges(){
-    const individual=$('edge-mode').value==='individual';
-    $('edge-picker-label').textContent=individual?'Choose an edge':'Choose a chain';
-    edgeOptions=[];$('edge-picker').replaceChildren(new Option(individual?'Pick an edge…':'Pick a chain…',''));
-    for(const body of viewer?.edgeChoices()||[]){
-      const group=document.createElement('optgroup');group.label=body.name;
-      body.choices.forEach((edge,index)=>{edgeOptions.push({body:body.id,key:edge.key,chainId:edge.chainId});group.append(new Option(individual?`Edge ${index+1}`:`Chain ${index+1} (${edge.keys.length} edge${edge.keys.length===1?'':'s'})`,String(edgeOptions.length-1)));});$('edge-picker').append(group);
-    }
+  function showMeshes(next,fit=false){
+    displayMeshes=next;viewer?.setMeshes(next,fit);syncSelection();viewer?.setPickMode(previewing?'none':pickMode);populateEdges();showObjects();
+    const volume=next.reduce((sum,body)=>sum+body.volume,0)/factors[unit]**3;$('summary').textContent=next.length?`${next.length} solid group${next.length===1?'':'s'} · ${Number(volume.toFixed(3))} ${unit}³`:'No solids yet. Extrude drawing paths or import an STL.';
   }
   function receive(event){
     const result=event.data;if(!inFlight||result.id!==inFlight.id)return;
-    const request=inFlight;inFlight=null;
+    if(result.type==='progress'){if(inFlight.id===latestId||inFlight.type==='export')status(result.stage);return;}
+    const request=inFlight;inFlight=null;clearTimeout(watchdog);watchdog=null;
     if(request.type==='export'){
-      exporting=false;
-      if(result.error)status(result.error,true);
-      else{const url=URL.createObjectURL(result.blob),link=document.createElement('a');link.href=url;link.download=`vector-lab-model.${request.format==='step'?'step':'stl'}`;link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);status(`Downloaded ${request.format.toUpperCase()} in millimeters. Apply the model and save an editable SVG to keep its features.`);}
-      enable();return;
+      exporting=false;if(result.error)status(result.error,true);else{const url=URL.createObjectURL(result.blob),link=document.createElement('a');link.href=url;link.download=`vector-lab-model.${request.format}`;link.click();setTimeout(()=>URL.revokeObjectURL(url),60000);status(`Downloaded ${request.format.toUpperCase()} in millimeters.`);}enable();return;
     }
-    // Ignore results superseded by another edit, including an invalid input.
-    if(queued||timer||JSON.stringify(request.model)!==JSON.stringify(working)){pump();enable();return;}
-    if(result.error){valid=false;status(result.error,true);$('summary').textContent='Preview could not update. The last successful view is shown.';}
+    if(request.id!==latestId){pump();enable();return;}
+    if(request.type==='suggest'){
+      pendingSuggestion=result.suggestion||null;$('chamfer-alternative').hidden=false;
+      $('chamfer-alternative').textContent=result.error|| (pendingSuggestion?`A ${format(pendingSuggestion.amount)} ${unit} chamfer passed the complete model and watertight-mesh checks. Your requested size is unchanged.`:'None of the smaller sizes passed. Reselect the boundary or try contour preparation.');
+      $('chamfer-use-size').hidden=!pendingSuggestion;$('chamfer-use-size').textContent=pendingSuggestion?`Preview ${format(pendingSuggestion.amount)} ${unit}`:'';
+      status(result.error||'Size checks finished. Choose a checked alternative or keep editing.',!!result.error);enable();pump();return;
+    }
+    if(result.error){if(request.purpose==='preview')resultValid=false;else inputReady=false;lastFailure=result.error;showChamferInfo();status(result.error,true);enable();pump();return;}
+    if(request.purpose==='preview'){resultModel=result.model||request.model;resultValid=true;lastFailure=null;}
     else{
-      meshes=result.meshes;for(const body of meshes)for(const [id,catalog] of Object.entries(body.shellSources))shellCatalogs.set(id,catalog);
-      valid=true;viewer?.setMeshes(meshes,needsFit);needsFit=false;populateEdges();populateFaces();showShellOpenings();
-      const volume=meshes.reduce((sum,mesh)=>sum+mesh.volume,0),value=volume/unitFactors[unit]**3;
-      $('summary').textContent=meshes.length?`${meshes.length} solid group${meshes.length===1?'':'s'} · ${Number(value.toFixed(3))} ${unit}³`:'No solids yet. Select closed paths in the drawing, then add an extrusion.';
-      const tolerance=Math.max(0,...meshes.map(mesh=>mesh.planarBevelTolerance||0));
-      status('Preview only. Apply keeps these features; Cancel leaves the drawing unchanged.'+(tolerance?` Planar bevel accuracy: ${tolerance} mm.`:''));
+      inputMeshes=result.meshes;inputReady=true;if(request.purpose==='idle')workingValid=true;
+      if(request.purpose==='idle'&&result.model)working=readModel(result.model);
+      if(draft&&!createsBody()&&!inputMeshes.some(body=>body.id===draft.target))draft.target=inputMeshes.find(body=>!hiddenBodies.has(body.id))?.id||null;
+      if(draft&&!createsBody())bodyId=draft.target;
     }
-    enable();pump();
+    showMeshes(result.meshes,needsFit);needsFit=false;populateInputs();
+    const tolerance=Math.max(0,...result.meshes.map(body=>body.planarBevelTolerance||0));
+    const rebound=result.meshes.some(body=>body.chamfers?.some(chamfer=>chamfer.rebound));
+    status((previewing?'Preview only. Apply this tool or return to Edit selection.':draft?'Select geometry, then Preview. Cancel tool discards this operation.':'Choose a tool to model. Save model keeps the session; Cancel discards it.')+(tolerance?` Planar bevel accuracy: ${tolerance} mm.`:'')+(rebound?' A chamfer boundary followed the changed source geometry. Review the preview before saving.':''));enable();pump();
   }
-  function addExtrusion(){
-    if(!source)return status(sourceError,true);
-    if(working.features.length>=100)return status('This model already has 100 features.',true);
-    const feature={id:crypto.randomUUID(),name:`Extrusion ${working.features.filter(feature=>feature.kind==='extrusion').length+1}`,kind:'extrusion',operation:'new',target:null,height:10,start:0,draft:0,profile:structuredClone(source)};
-    working.features.push(feature);activeId=feature.id;needsFit=true;updateList();showFeature();schedule();
-  }
-  async function open(add=false){
+  async function open(shortcut=false){
     finish();const thisSession=++session;
-    try{working=readModel(getModel());}catch(error){say(error.message);return;}
-    activeId=working.features.at(-1)?.id||null;shellCatalogs.clear();
-    source=null;sourceError='';try{source=selectionProfiles(paper,getSelection());}catch(error){sourceError=error.message;}
-    unit=getUnit();$('unit').value=unit;$('edge-size').value=$('shell-size').value=format(1);$('shell-side').value='inside';$('edge-mode').value='connected';setPickMode('edges');$('source').textContent=source?`${source.length} selected profile${source.length===1?'':'s'} ready to extrude.`:sourceError;
-    $('add').disabled=$('replace').disabled=!source;meshes=[];edges=[];faces=[];valid=false;needsFit=true;loading=true;exporting=false;updateList();showFeature();populateEdges();onSelection([]);onFaceSelection([]);enable();
-    dialog.showModal();status('Loading the local 3D engine…');
+    try{working=readModel(getModel());catalog=drawingPaths(paper,[...getPaths()],getSelection());}catch(error){say(error.message);return;}
+    pathIds=catalog.filter(path=>path.selected).map(path=>path.id);hiddenPaths=new Set();hiddenBodies=new Set();bodyId=null;
+    tool='select';draft=null;editingId=null;edges=[];faces=[];previewing=false;pickMode='bodies';inputMeshes=[];displayMeshes=[];workingValid=false;resultValid=false;inputReady=false;loading=true;exporting=false;needsFit=true;
+    unit=getUnit();$('unit').value=unit;$('edge-mode').value='connected';showFields();updateHistory();showObjects();dialog.showModal();status('Loading the local 3D engine…');
     try{
       const {createModelViewer}=await import('./model3d-viewer.js');if(thisSession!==session||!dialog.open)return;
-      viewer=createModelViewer($('viewer'),onSelection,onFaceSelection);
-      worker=new Worker(new URL('./model3d.worker.js',import.meta.url),{type:'module'});worker.onmessage=receive;
-      worker.onerror=()=>{valid=false;inFlight=null;queued=null;loading=false;status('The local 3D engine could not load. Close and reopen the model to retry.',true);enable();};
-      loading=false;
-      if(add||(!working.features.length&&source))addExtrusion();
-      else requestBuild();
-    }catch(error){loading=false;status(`Could not open the 3D preview: ${error.message}`,true);enable();}
+      viewer=createModelViewer($('viewer'),{onEdges,onFaces,onPaths,onBody});viewer.setPaths(catalog);syncSelection();viewer.view();
+      createWorker();
+      loading=false;if(shortcut)beginTool('extrude');else build(working,'idle');
+    }catch(error){loading=false;status(`Could not open the workspace: ${error.message}`,true);enable();}
   }
-  entry.onclick=()=>open();extrude.onclick=()=>open(true);$('add').onclick=addExtrusion;
-  $('replace').onclick=()=>{const feature=active();if(!source||feature?.kind!=='extrusion')return;feature.profile=structuredClone(source);schedule();};
-  for(const id of ['name','height','start','draft','treatment-size','shell-thickness'])$(id).addEventListener('input',controlsChanged);
-  for(const id of ['operation','target','shell-direction'])$(id).addEventListener('change',controlsChanged);
-  $('unit').onchange=()=>{const thickness=$('shell-size').valueAsNumber*unitFactors[unit];unit=$('unit').value;showFeature();updateList();$('edge-size').value=format(1);$('shell-size').value=format(thickness);if(valid)requestBuild();};
-  $('pick-mode').onchange=()=>setPickMode($('pick-mode').value);
-  $('shell-target').onchange=()=>{viewer?.setFaceSelection([]);populateFaces();};
-  $('clear-faces').onclick=()=>viewer?.setFaceSelection([]);
-  $('add-shell').onclick=()=>{
-    const thickness=$('shell-size').valueAsNumber*unitFactors[unit];
-    if(!valid||!faces.length)return;
-    if(!Number.isFinite(thickness)||thickness<=0||thickness>1000)return status('Enter a wall thickness greater than zero and no more than 1000 mm.',true);
-    if(working.features.length>=100)return status('This model already has 100 features.',true);
-    const feature={id:crypto.randomUUID(),name:`Shell ${working.features.filter(feature=>feature.kind==='shell').length+1}`,kind:'shell',target:faces[0].body,thickness,direction:$('shell-side').value,faces:faces.map(face=>face.key)};
-    shellCatalogs.set(feature.id,meshes.find(body=>body.id===feature.target).faces);
-    working.features.push(feature);activeId=feature.id;viewer?.setFaceSelection([]);setPickMode('edges');updateList();showFeature();schedule();
+  entry.onclick=()=>open();extrude.onclick=()=>open(true);
+  $('import-stl').onclick=()=>$('stl-file').click();
+  $('stl-file').onchange=async event=>{
+    const file=event.target.files[0];event.target.value='';if(!file)return;
+    const current=session;loading=true;enable();status('Reading STL triangles…');
+    try{
+      if(file.size>MAX_STL_BYTES)throw Error('Choose an STL file smaller than 8 MB.');
+      const buffer=await file.arrayBuffer();if(current!==session||!dialog.open)return;
+      const mesh=readSTL(buffer),total=working.features.reduce((count,feature)=>count+(feature.kind==='stl'?feature.mesh.triangles.length/3:0),mesh.triangles.length/3);
+      if(total>MAX_MODEL_TRIANGLES)throw Error('This model would exceed 20,000 imported triangles. Use fewer or simpler STL files.');
+      loading=false;beginTool('stl',null,mesh,file.name.replace(/\.stl$/i,'').slice(0,100)||'Imported STL');
+    }catch(error){if(current===session&&dialog.open)status(error.message||'Could not read this STL.',true);}
+    finally{if(current===session&&dialog.open){loading=false;enable();}}
   };
-  $('edge-picker').onchange=()=>{const edge=edgeOptions[Number($('edge-picker').value)];if($('edge-picker').value!==''&&edge)viewer?.selectEdge(edge);else viewer?.setSelection([]);};
+  for(const button of dialog.querySelectorAll('[data-model-tool]'))button.onclick=()=>beginTool(button.dataset.modelTool);
+  for(const id of ['name','height','start','draft','shell-thickness','edge-size','texture-depth','texture-width','texture-spacing','texture-angle'])$(id).addEventListener('input',parametersChanged);
+  for(const id of ['shell-direction','texture-pattern','texture-mode','stl-units'])$(id).onchange=parametersChanged;
+  $('target').onchange=()=>onBody($('target').value||null);$('pick-mode').onchange=()=>setPickMode($('pick-mode').value);
+  $('edge-picker').onchange=()=>{if($('edge-picker').value!=='')viewer?.selectEdge(edgeOptions[Number($('edge-picker').value)]);};
   $('edge-mode').onchange=()=>{viewer?.setEdgeMode($('edge-mode').value);populateEdges();};
-  $('clear-edges').onclick=()=>{viewer?.setSelection([]);$('edge-picker').value='';};
-  for(const kind of ['chamfer','fillet'])$(kind).onclick=()=>{
-    const amount=$('edge-size').valueAsNumber*unitFactors[unit];
-    if(!valid||!edges.length||!Number.isFinite(amount)||amount<=0||amount>1000)return status('Enter an edge size greater than zero and no more than 1000 mm.',true);
-    if(edges.length>MAX_TREATMENT_EDGES)return status(`This selection is too complex. Select up to ${MAX_TREATMENT_EDGES} edges per treatment.`,true);
-    const feature={id:crypto.randomUUID(),name:`${kind==='chamfer'?'Chamfer':'Fillet'} ${working.features.filter(feature=>feature.kind===kind).length+1}`,kind,target:edges[0].body,edges:edges.map(edge=>edge.key),amount};
-    working.features.push(feature);activeId=feature.id;viewer?.setSelection([]);updateList();showFeature();schedule();
+  $('boundary-filter').onchange=()=>{boundaryFilterTouched=true;viewer?.previewEdges();populateBoundaries();enable();};
+  $('focus-edges').onclick=()=>{viewer?.focusEdges();$('viewer').scrollIntoView({block:'nearest',behavior:'smooth'});};
+  $('clear-edges').onclick=()=>viewer?.setSelection([]);$('clear-faces').onclick=()=>viewer?.setFaceSelection([]);
+  $('preview').onclick=preview;$('edit-selection').onclick=()=>{invalidate();previewing=false;showFields();showObjects();build(inputModel(),'input');};$('cancel-tool').onclick=()=>{if(inFlight)abortCalculation(null);cancelDraft();};
+  $('chamfer-prepare').onchange=parametersChanged;
+  $('chamfer-highlight').onclick=()=>viewer?.setProblemEdges(chamferReport.shortEdges.map(key=>({body:draft.target,key})));
+  $('chamfer-suggest').onclick=()=>{
+    let model;try{model=candidate();}catch(error){status(error.message,true);return;}
+    pendingSuggestion=null;$('chamfer-alternative').hidden=$('chamfer-use-size').hidden=true;
+    queued={id:++sequence,type:'suggest',model,featureId:draft.id};latestId=queued.id;status('Checking up to three smaller sizes. Cancel to stop.');pump();
   };
-  for(const button of dialog.querySelectorAll('[data-model-view]'))button.onclick=()=>viewer?.view(button.dataset.modelView);
-  $('fit').onclick=()=>viewer?.view();
-  for(const format of ['stl','step'])$(format).onclick=()=>{if(!valid||inFlight||queued||timer||exporting)return;exporting=true;inFlight={id:++sequence,type:'export',format};status(`Preparing ${format.toUpperCase()}…`);enable();worker.postMessage(inFlight);};
-  $('apply').onclick=()=>{if(!valid||inFlight||queued||timer||loading||exporting)return;setModel(readModel(working));dialog.close();say('3D model applied. Save an editable SVG to keep the features.');};
+  $('chamfer-use-size').onclick=()=>{
+    if(!pendingSuggestion)return;const suggestion=pendingSuggestion;draft=structuredClone(suggestion.model.features.find(feature=>feature.id===draft.id));
+    $('edge-size').value=format(draft.amount);pendingSuggestion=null;$('chamfer-alternative').hidden=$('chamfer-use-size').hidden=true;
+    previewing=true;resultValid=false;populateInputs();showObjects();build(suggestion.model,'preview');
+  };
+  $('stop').onclick=()=>abortCalculation();$('retry').onclick=()=>{if(!retryRequest)return;queued={...retryRequest,id:++sequence};if(queued.purpose==='preview')previewing=true;latestId=queued.id;retryRequest=null;pump();};
+  $('apply-tool').onclick=()=>{
+    if(!resultValid||busy())return;working=readModel(resultModel);workingValid=true;inputMeshes=displayMeshes;inputReady=true;
+    bodyId=draft.operation==='new'?draft.id:draft.target;cancelDraft(false);populateInputs();showObjects();status('Tool applied to this session. Choose another tool or Save model.');enable();
+  };
+  $('unit').onchange=()=>{unit=$('unit').value;showFields();updateHistory();showMeshes(displayMeshes);};
+  for(const type of ['paths','bodies'])$(type+'-visibility').onclick=event=>{
+    event.preventDefault();const items=type==='paths'?catalog:displayMeshes,hidden=type==='paths'?hiddenPaths:hiddenBodies,hide=items.some(item=>!hidden.has(item.id));
+    for(const item of items)hide?hidden.add(item.id):hidden.delete(item.id);
+    if(!previewing&&hide){if(type==='paths')onPaths([]);else onBody(null);}
+    viewer?.setVisibility({paths:hiddenPaths,bodies:hiddenBodies});populateEdges();showObjects();enable();
+  };
+  for(const button of dialog.querySelectorAll('[data-model-view]'))button.onclick=()=>viewer?.view(button.dataset.modelView);$('fit').onclick=()=>viewer?.view();
+  for(const format of ['stl','step'])$(format).onclick=()=>{if(busy()||draft||!workingValid)return;exporting=true;queued={id:++sequence,type:'export',format,model:working};latestId=queued.id;status(`Preparing ${format.toUpperCase()}…`);pump();};
+  $('apply').onclick=()=>{if(busy()||draft||!workingValid)return;setModel(readModel(working),catalog.map(({id,sourceId})=>({id,sourceId})).filter(binding=>working.features.some(feature=>feature.sourceIds?.includes(binding.sourceId))));dialog.close();say('3D model saved. Source path edits update linked features. Imported solids and textures are saved too.');};
   for(const id of ['close','cancel'])$(id).onclick=()=>dialog.close();
-  dialog.addEventListener('close',()=>{++session;cancelPending();worker?.terminate();worker=null;inFlight=null;viewer?.dispose();viewer=null;entry.focus();});
+  dialog.addEventListener('close',()=>{++session;invalidate();clearTimeout(watchdog);watchdog=null;retryRequest=null;worker?.terminate();worker=null;inFlight=null;viewer?.dispose();viewer=null;entry.focus();});
   return {sync(){extrude.disabled=!getSelection().length;}};
 }

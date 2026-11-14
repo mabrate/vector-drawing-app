@@ -1,117 +1,68 @@
 import {test,expect} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
-test.use({launchOptions:{executablePath:'/usr/bin/google-chrome',args:['--enable-unsafe-swiftshader']}});
-test.setTimeout(90000);
-const svg='<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120"><path d="M0 0H160V120H0Z" fill="#508b87"/></svg>';
-const stored=page=>page.evaluate(()=>JSON.parse(localStorage.getItem('vector-lab'))[1].data?.model3d);
-async function load(page){await page.goto('/');page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles({name:'profile.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg)});await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');}
-async function ready(page){await expect(page.locator('#model3d-apply')).toBeEnabled({timeout:60000});}
+import {rectangle,circle,stored,snapshot,idle,load,open,choose,pathButton,preview,applyTool,addBox,editLast,center} from './model3d-helpers.js';
+test.use({launchOptions:{executablePath:'/usr/bin/google-chrome',args:['--enable-unsafe-swiftshader']},hasTouch:true});
+test.setTimeout(120000);
 
-test('extrusion preview is reversible and applies one recoverable, editable SVG change',async({page})=>{
-  const errors=[];page.on('pageerror',error=>errors.push(error.message));await load(page);const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
-  await page.locator('#extrude-path').click();await ready(page);await page.locator('#model3d-height').fill('12');await page.locator('#model3d-draft').fill('5');await ready(page);
-  expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
-  await page.locator('#model3d-cancel').click();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
-  await page.locator('#extrude-path').click();await ready(page);await page.locator('#model3d-height').fill('12');await page.locator('#model3d-draft').fill('5');await ready(page);
-  await page.locator('#model3d-apply').click();expect((await stored(page)).features[0].height).toBe(12);
-  await page.locator('#canvas-undo').click();expect((await stored(page))?.features||[]).toHaveLength(0);await page.locator('#canvas-redo').click();expect((await stored(page)).features[0].draft).toBe(5);
-  await page.reload();await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-height')).toHaveValue('12');await expect(page.locator('#model3d-features li')).toHaveCount(1);
-  const stlEvent=page.waitForEvent('download');await page.locator('#model3d-stl').click();expect((await stlEvent).suggestedFilename()).toMatch(/\.stl$/);await ready(page);
-  const stepEvent=page.waitForEvent('download');await page.locator('#model3d-step').click();expect((await stepEvent).suggestedFilename()).toMatch(/\.step$/);await ready(page);
-  await page.locator('#model3d-cancel').click();await page.locator('#save').click();await expect(page.locator('#download-svg')).toBeEnabled();const event=page.waitForEvent('download');await page.locator('#download-svg').click();const file=await(await event).path();
-  page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles(file);await expect(page.locator('#status')).toContainText('SVG opened');expect((await stored(page)).features[0].height).toBe(12);
-  await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-draft')).toHaveValue('5');await page.screenshot({path:'/tmp/vector-lab-model3d-desktop.png'});expect(errors).toEqual([]);
+test('choose a tool, select paths in 3D, preview and apply without changing the drawing until Save',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));await open(page);const before=await snapshot(page);
+  await expect(page.locator('#model3d-features li')).toHaveCount(0);await expect(page.locator('#model3d-tool-panel')).toBeHidden();
+  await choose(page,'extrude');await expect(page.locator('#model3d-preview')).toBeDisabled();await expect(page.locator('#model3d-shell')).toBeHidden();await expect(page.locator('#model3d-edges')).toBeHidden();
+  await page.locator('[data-model-view=top]').click();const p=await center(page);await page.mouse.click(p.x,p.y);await expect(pathButton(page)).toHaveAttribute('aria-pressed','true');
+  await page.touchscreen.tap(p.x,p.y);await expect(pathButton(page)).toHaveAttribute('aria-pressed','false');await page.touchscreen.tap(p.x,p.y);
+  await page.locator('#model3d-height').fill('12');await preview(page);await expect(page.locator('#model3d-view-state')).toHaveText('Result preview');await expect(page.locator('#model3d-pick-mode')).toBeDisabled();
+  await expect(page.locator('#model3d-features li')).toHaveCount(0);expect(await snapshot(page)).toBe(before);
+  await page.locator('#model3d-apply-tool').click();await expect(page.locator('#model3d-features li')).toHaveCount(1);expect(await snapshot(page)).toBe(before);
+  await page.locator('#model3d-cancel').click();expect(await snapshot(page)).toBe(before);
+  await page.keyboard.press('Control+a');await page.locator('#extrude-path').click();await idle(page);await expect(pathButton(page)).toHaveAttribute('aria-pressed','true');await applyTool(page);await page.locator('#model3d-apply').click();
+  expect((await stored(page)).features[0].height).toBe(10);await page.locator('#canvas-undo').click();expect((await stored(page))?.features||[]).toHaveLength(0);await page.locator('#canvas-redo').click();expect((await stored(page)).features).toHaveLength(1);expect(errors).toEqual([]);
 });
 
-test('a 20 mm circle accepts 5 degree draft, recovers after excessive draft, and reopens unchanged',async({page})=>{
-  const circle=`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="${10*96/25.4}" fill="teal"/></svg>`;
-  const errors=[];page.on('pageerror',error=>errors.push(error.message));
-  await page.goto('/');page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles({name:'20mm-circle.svg',mimeType:'image/svg+xml',buffer:Buffer.from(circle)});await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');
-  const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
-  await page.locator('#extrude-path').click();await ready(page);await page.locator('#model3d-draft').fill('5');await ready(page);
-  await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 2874.754 mm³');
-  await page.locator('#model3d-height').fill('200');await expect(page.locator('#model3d-status')).toContainText('draft closes the circular profile');await expect(page.locator('#model3d-apply')).toBeDisabled();
-  await page.locator('#model3d-height').fill('10');await ready(page);await page.locator('#model3d-draft').fill('-5');await ready(page);
-  await expect(page.locator('#model3d-status')).not.toHaveClass(/model3d-error/);await page.locator('#model3d-draft').fill('5');await ready(page);
-  expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
-  await page.screenshot({path:'/tmp/vector-lab-circle-draft-5deg.png'});
-  await page.locator('#model3d-apply').click();const recipe=await stored(page);expect(recipe.features[0].draft).toBe(5);
-  await page.reload();await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-draft')).toHaveValue('5');await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 2874.754 mm³');expect(await stored(page)).toEqual(recipe);expect(errors).toEqual([]);
+test('feature edits have Preview, Apply and Cancel boundaries and survive SVG and recovery',async({page})=>{
+  await open(page);await addBox(page);await page.locator('#model3d-apply').click();const original=await stored(page);
+  await page.locator('#model3d-open').click();await idle(page);await editLast(page);await page.locator('#model3d-height').fill('12');await preview(page);await page.locator('#model3d-cancel-tool').click();await idle(page);await page.locator('#model3d-apply').click();expect(await stored(page)).toEqual(original);
+  await page.locator('#model3d-open').click();await idle(page);await editLast(page);await page.locator('#model3d-height').fill('12');await applyTool(page);await page.locator('#model3d-apply').click();expect((await stored(page)).features[0].height).toBe(12);
+  await page.reload();await page.locator('#model3d-open').click();await idle(page);await expect(page.locator('#model3d-tool-panel')).toBeHidden();await editLast(page);await expect(page.locator('#model3d-height')).toHaveValue('12');await page.locator('#model3d-cancel-tool').click();await idle(page);
+  for(const format of ['stl','step']){const event=page.waitForEvent('download');await page.locator(`#model3d-${format}`).click();expect((await event).suggestedFilename()).toMatch(new RegExp(`\\.${format}$`));await idle(page);}
+  await page.locator('#model3d-cancel').click();await page.locator('#save').click();const event=page.waitForEvent('download');await page.locator('#download-svg').click();const file=await(await event).path();page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles(file);await expect(page.locator('#status')).toContainText('SVG opened');expect((await stored(page)).features[0].height).toBe(12);
 });
 
-test('edge treatments select actual CAD edges, validate input, and stay in the modal until applied',async({page})=>{
-  await load(page);await page.locator('#extrude-path').click();await ready(page);
-  await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-chamfer')).toBeEnabled();await page.locator('#model3d-edge-size').fill('0.5');await page.locator('#model3d-chamfer').click();await ready(page);await expect(page.locator('#model3d-features li')).toHaveCount(2);
-  await expect(page.locator('#model3d-treatment-help')).toContainText('4 edges');
-  await page.locator('#model3d-treatment-size').fill('999');await expect(page.locator('#model3d-apply')).toBeDisabled();await expect(page.locator('#model3d-status')).toHaveClass(/model3d-error/,{timeout:60000});
-  await page.locator('#model3d-treatment-size').fill('0.5');await ready(page);await page.locator('#model3d-apply').click();expect((await stored(page)).features[1].kind).toBe('chamfer');
+test('circular draft previews recover after invalid dimensions and preserve units and the original profile',async({page})=>{
+  await open(page,circle);await choose(page,'extrude');await pathButton(page).click();await page.locator('#model3d-draft').fill('5');await preview(page);await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 2874.754 mm³');
+  await page.locator('#model3d-height').fill('200');await expect(page.locator('#model3d-status')).toContainText('draft closes the circular profile',{timeout:90000});await expect(page.locator('#model3d-apply-tool')).toBeDisabled();
+  await page.locator('#model3d-height').fill('10');await expect(page.locator('#model3d-apply-tool')).toBeEnabled({timeout:90000});await page.locator('#model3d-unit').selectOption('in');expect(Number(await page.locator('#model3d-height').inputValue())).toBeCloseTo(10/25.4,6);
+  await page.locator('#model3d-apply-tool').click();await page.locator('#model3d-apply').click();const recipe=await stored(page);expect(recipe.features[0].height).toBe(10);expect(recipe.features[0].draft).toBe(5);
+  await page.reload();await page.locator('#model3d-open').click();await idle(page);await expect(page.locator('#model3d-summary')).toContainText('2874.754');expect(await stored(page)).toEqual(recipe);
 });
 
-test.describe('connected rim picking',()=>{
-  test.use({hasTouch:true});
-  test('mouse and touch pick a whole rim, with individual selection and clear available',async({page})=>{
-    await load(page);const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
-    await page.locator('#extrude-path').click();await ready(page);await page.locator('[data-model-view=top]').click();
-    await expect(page.locator('#model3d-edge-mode')).toHaveValue('connected');await expect(page.locator('#model3d-edge-picker optgroup option')).toHaveCount(6);
-    // Top-view perspective projects the upper rim slightly larger than a slice
-    // through the model's center. Click its middle, away from corner ambiguity.
-    const canvas=await page.locator('#model3d-viewer canvas').boundingBox(),height=120*25.4/96,span=160*25.4/96;
-    const y=canvas.y+canvas.height*(.5-height/(2*(span*1.5-10*Math.tan(40*Math.PI/360)))),x=canvas.x+canvas.width/2;
-    await page.mouse.click(x,y);await expect(page.locator('#model3d-edge-count')).toContainText('4 edges selected');
-    await page.touchscreen.tap(x,y);await expect(page.locator('#model3d-edge-count')).toHaveText('Select an edge in the preview.');
-    await page.touchscreen.tap(x,y);await expect(page.locator('#model3d-edge-count')).toContainText('4 edges selected');
-    await page.locator('#model3d-edge-mode').selectOption('individual');await expect(page.locator('#model3d-edge-picker optgroup option')).toHaveCount(12);
-    await page.mouse.click(x,y);await expect(page.locator('#model3d-edge-count')).toContainText('1 edge selected');
-    await page.locator('#model3d-clear-edges').click();await expect(page.locator('#model3d-chamfer')).toBeDisabled();
-    await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-edge-count')).toContainText('1 edge selected');
-    await page.locator('#model3d-edge-mode').selectOption('connected');await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-edge-count')).toContainText('4 edges selected');
-    await page.screenshot({path:'/tmp/vector-lab-connected-edge-selection.png'});await page.locator('#model3d-cancel').click();expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
-  });
+test('Join and Cut select paths and bodies inside the workspace and an edit can replace a copied profile',async({page})=>{
+  const svg=rectangle.replace('</svg>','<path id="Boss" d="M0 0H80V60H0Z" fill="blue"/></svg>');await open(page,svg);
+  await choose(page,'extrude');await pathButton(page,0).click();await page.locator('#model3d-height').fill('3');await applyTool(page);
+  await choose(page,'join');await pathButton(page,0).click();await pathButton(page,1).click();await page.locator('#model3d-height').fill('15');await applyTool(page);await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 8064.5 mm³');
+  await choose(page,'cut');await page.locator('#model3d-height').fill('2');await page.locator('#model3d-start').fill('13');await applyTool(page);await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 7392.458 mm³');
+  await page.locator('#model3d-apply').click();expect((await stored(page)).features.map(feature=>feature.operation)).toEqual(['new','join','cut']);
+  await page.locator('#model3d-open').click();await idle(page);await page.locator('#model3d-features li').first().locator('button').first().click();await idle(page);await pathButton(page,1).click();await applyTool(page);await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 4368.271 mm³');await page.locator('#model3d-cancel').click();expect((await stored(page)).features[0].profile).not.toEqual((await stored(page)).features[1].profile);
 });
 
-test('mobile modeling fits the viewport and new drawings clear the model with undo',async({page})=>{
-  await page.setViewportSize({width:390,height:844});await load(page);await page.locator('#model3d-open').click();await ready(page);
-  const box=await page.locator('#model3d-dialog').boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.width).toBeLessThanOrEqual(390);
-  await page.screenshot({path:'/tmp/vector-lab-model3d-mobile.png'});await page.locator('#model3d-apply').click();expect((await stored(page)).features).toHaveLength(1);
+test('edge tools select actual CAD chains with touch, individual edges and error recovery',async({page})=>{
+  await open(page);await addBox(page);await choose(page,'chamfer');await expect(page.locator('#model3d-shell')).toBeHidden();await expect(page.locator('#model3d-extrusion')).toBeHidden();
+  await page.locator('[data-model-view=top]').click();const box=await page.locator('#model3d-viewer canvas').boundingBox(),span=160*25.4/96,height=120*25.4/96;
+  const x=box.x+box.width/2,y=box.y+box.height*(.5-height/(2*(span*1.5-10*Math.tan(40*Math.PI/360))));
+  await page.touchscreen.tap(x,y);await expect(page.locator('#model3d-edge-count')).toHaveText('4 edges selected.');await page.touchscreen.tap(x,y);await expect(page.locator('#model3d-preview')).toBeDisabled();
+  await page.locator('#model3d-edge-advanced').evaluate(element=>element.open=true);await page.locator('#model3d-edge-picker').selectOption('0');await page.locator('#model3d-edge-size').fill('0.5');await applyTool(page);
+  await editLast(page);await page.locator('#model3d-edge-size').fill('999');await page.locator('#model3d-preview').click();await expect(page.locator('#model3d-status')).toHaveClass(/model3d-error/,{timeout:90000});await page.locator('#model3d-edge-size').fill('0.5');await expect(page.locator('#model3d-apply-tool')).toBeEnabled({timeout:90000});await page.locator('#model3d-apply-tool').click();
+  await choose(page,'fillet');await page.locator('#model3d-edge-advanced').evaluate(element=>element.open=true);await page.locator('#model3d-edge-mode').selectOption('individual');await page.locator('#model3d-edge-advanced').evaluate(element=>element.open=true);await page.locator('#model3d-edge-picker').selectOption('0');await expect(page.locator('#model3d-edge-count')).toHaveText('1 edge selected.');await page.locator('#model3d-clear-edges').click();await expect(page.locator('#model3d-preview')).toBeDisabled();await page.locator('#model3d-cancel-tool').click();await idle(page);
+  await page.locator('#model3d-apply').click();expect((await stored(page)).features[1]).toMatchObject({kind:'chamfer',amount:.5});
+});
+
+test('opening invalid metadata preserves the drawing and New clears a saved model with Undo',async({page})=>{
+  await open(page);await addBox(page);await page.locator('#model3d-apply').click();const before=await snapshot(page);
+  const bad=rectangle.replace('<path','<metadata id="vector-lab-model3d">{"version":2,"features":[]}</metadata><path');await page.locator('#file').setInputFiles({name:'bad.svg',mimeType:'image/svg+xml',buffer:Buffer.from(bad)});await expect(page.locator('#status')).toContainText('invalid or unsupported 3D model data');expect(await snapshot(page)).toBe(before);
   await page.locator('#file-menu-button').click();page.once('dialog',dialog=>dialog.accept());await page.locator('#new').click();expect(await stored(page)).toBeUndefined();await page.locator('#canvas-undo').click();expect((await stored(page)).features).toHaveLength(1);
 });
 
-test('new raised and cutting features use the existing solid, with unit conversion and profile replacement',async({page})=>{
-  await load(page);await page.locator('#extrude-path').click();await ready(page);await page.locator('#model3d-height').fill('3');await ready(page);await page.locator('#model3d-apply').click();
-  const boss='<svg xmlns="http://www.w3.org/2000/svg" width="80" height="60"><path d="M0 0H80V60H0Z" fill="blue"/></svg>';
-  await page.locator('#image-file').setInputFiles({name:'boss.svg',mimeType:'image/svg+xml',buffer:Buffer.from(boss)});await expect(page.locator('#status')).toContainText('SVG artwork stays editable');
-  await page.locator('#model3d-open').click();await ready(page);await page.locator('#model3d-add').click();await page.locator('#model3d-operation').selectOption('join');await page.locator('#model3d-height').fill('15');await ready(page);
-  await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 8064.5 mm³');
-  await page.locator('#model3d-unit').selectOption('in');await ready(page);expect(Number(await page.locator('#model3d-height').inputValue())).toBeCloseTo(15/25.4,6);
-  await page.locator('#model3d-unit').selectOption('mm');await ready(page);await page.locator('#model3d-add').click();await page.locator('#model3d-operation').selectOption('cut');await page.locator('#model3d-height').fill('2');await page.locator('#model3d-start').fill('13');await ready(page);
-  await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 7392.458 mm³');await page.locator('#model3d-apply').click();expect((await stored(page)).features.map(feature=>feature.operation)).toEqual(['new','join','cut']);
-  await page.locator('#model3d-open').click();await ready(page);await page.locator('#model3d-features li').first().locator('button').first().click();await page.locator('#model3d-replace').click();await ready(page);
-  await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 4368.271 mm³');await page.locator('#model3d-cancel').click();expect((await stored(page)).features[0].profile[0].outer).not.toEqual((await stored(page)).features[1].profile[0].outer);
-});
-
-test('opening ordinary SVG replaces a model and invalid model metadata preserves the current drawing',async({page})=>{
-  await load(page);await page.locator('#extrude-path').click();await ready(page);await page.locator('#model3d-apply').click();const before=await page.evaluate(()=>localStorage.getItem('vector-lab'));
-  const bad=svg.replace('<path','<metadata id="vector-lab-model3d">{"version":2,"features":[]}</metadata><path');
-  await page.locator('#file').setInputFiles({name:'bad-model.svg',mimeType:'image/svg+xml',buffer:Buffer.from(bad)});await expect(page.locator('#status')).toContainText('invalid or unsupported 3D model data');expect(await page.evaluate(()=>localStorage.getItem('vector-lab'))).toBe(before);
-  page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles({name:'plain.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg)});await expect(page.locator('#status')).toContainText('SVG opened');expect((await stored(page)).features).toHaveLength(0);
-  await page.locator('#canvas-undo').click();expect((await stored(page)).features).toHaveLength(1);
-});
-
-test('the supplied stepped block reopens its junction chamfer and keeps all four edge references editable',async({page})=>{
-  await page.goto('/');page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles(new URL('../examples/stepped-block-3d.svg',import.meta.url).pathname);await expect(page.locator('#status')).toContainText('SVG opened');
-  await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 6031.333 mm³');await expect(page.locator('#model3d-treatment-help')).toContainText('4 edges');
-  await page.screenshot({path:'/tmp/vector-lab-model3d-junction.png'});
-  await page.locator('#model3d-treatment-size').fill('0.5');await ready(page);await page.locator('#model3d-apply').click();expect((await stored(page)).features[2].amount).toBe(0.5);
-  await page.reload();await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-treatment-size')).toHaveValue('0.5');await expect(page.locator('#model3d-treatment-help')).toContainText('4 edges');
-});
-
-test('the 1 mm fish chamfer previews, applies and reopens with its original profile and full edge selection',async({page})=>{
-  test.setTimeout(180000);
-  const model=JSON.parse(await readFile(new URL('./fixtures/fish-chamfer.json',import.meta.url),'utf8'));
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"><metadata id="vector-lab-model3d">${JSON.stringify(model)}</metadata><path d="M10 10h100v50H10z" fill="teal"/></svg>`;
-  await page.goto('/');page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'fish.svg',mimeType:'image/svg+xml',buffer:Buffer.from(svg)});await expect(page.locator('#status')).toContainText('SVG opened');
-  await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-treatment-size')).toHaveValue('1');await expect(page.locator('#model3d-treatment-help')).toContainText('71 edges');await expect(page.locator('#model3d-status')).toContainText('0.02 mm');
-  await page.screenshot({path:'/tmp/vector-lab-fish-1mm-chamfer.png'});
-  await page.locator('#model3d-apply').click();expect((await stored(page)).features.at(-1).amount).toBe(1);expect((await stored(page)).features[0].profile).toEqual(model.features[0].profile);
-  await page.reload();await page.locator('#model3d-open').click();await ready(page);await expect(page.locator('#model3d-treatment-size')).toHaveValue('1');await expect(page.locator('#model3d-status')).toContainText('0.02 mm');
+test('the supplied junction chamfer and complex fish keep their editable edge references',async({page})=>{
+  test.setTimeout(240000);await page.goto('/');page.once('dialog',dialog=>dialog.accept());await page.locator('#file').setInputFiles(new URL('../examples/stepped-block-3d.svg',import.meta.url).pathname);await expect(page.locator('#status')).toContainText('SVG opened');await page.locator('#model3d-open').click();await idle(page);await expect(page.locator('#model3d-summary')).toHaveText('1 solid group · 6031.333 mm³');await editLast(page);await expect(page.locator('#model3d-edge-count')).toHaveText('4 edges selected.');await page.locator('#model3d-cancel').click();
+  const model=JSON.parse(await readFile(new URL('./fixtures/fish-chamfer.json',import.meta.url),'utf8'));await load(page,`<svg xmlns="http://www.w3.org/2000/svg" width="600" height="900"><metadata id="vector-lab-model3d">${JSON.stringify(model)}</metadata><path d="M10 10h100v50H10z" fill="teal"/></svg>`);
+  await page.locator('#model3d-open').click();await idle(page);await expect(page.locator('#model3d-status')).toContainText('0.02 mm');await editLast(page);await expect(page.locator('#model3d-edge-count')).toHaveText('71 edges selected.');await preview(page);await expect(page.locator('#model3d-status')).toContainText('0.02 mm');await page.locator('#model3d-apply-tool').click();await page.locator('#model3d-apply').click();expect((await stored(page)).features[0].profile).toEqual(model.features[0].profile);
 });

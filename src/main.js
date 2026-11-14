@@ -2,6 +2,7 @@ import {createBrowserRecovery} from './browser-recovery.js';
 import {createInteractionOverlay} from './interaction-overlay.js';
 import {installPathOffset} from './path-offset.js';
 import {installModel3D} from './model3d-dialog.js';
+import {installLinkedModelUpdates} from './model3d-link-updates.js';
 import {readModel} from './model3d-data.js';
 import {installPathMenu} from './path-menu.js';
 import {strokeToPath,canConvertStroke} from './stroke-to-path.js';
@@ -92,8 +93,8 @@ function style(){return {...strokeControls?.style(),fillColor:$('no-fill').check
 function snapshot(){normalizeCompoundPaths(art);art.data.page={...pageSize};return art.exportJSON({asString:true,precision:15});}
 let browserRecovery;
 function persist(saved){browserRecovery?.save(saved??snapshot(),drawingName);if(browserRecovery?.mode==='saved')say('Recovered locally · Save SVG to keep a copy');else if(browserRecovery?.mode==='unavailable')say('Browser recovery unavailable. Save an SVG copy.');}
-function commit(render=true){const s=snapshot();if(history.at(-1)!==s){history.push(s);if(history.length>60)history.shift();future=[];}persist(s);if(render)refresh();}
-function restore(s){const view={zoom:paper.view.zoom,center:paper.view.center.clone()};viewFitted=false;hideHandleSize();art.removeChildren();art.importJSON(s);art.getItems({class:paper.PointText}).forEach(migrateTextFont);pageSize={...(art.data.page||DEFAULT_PAGE)};selected=[];selectedNodes=[];path=null;node=null;paper.view.zoom=view.zoom;paper.view.center=view.center;refresh();persist();ensureDocumentFonts();}
+function commit(render=true){const before=history.at(-1),changed=modelLinks?.prepare()||false,s=snapshot();if(history.at(-1)!==s){history.push(s);if(history.length>60)history.shift();future=[];}persist(s);if(render)refresh();modelLinks?.committed({before,changed});}
+function restore(s){const view={zoom:paper.view.zoom,center:paper.view.center.clone()};viewFitted=false;hideHandleSize();art.removeChildren();art.importJSON(s);art.getItems({class:paper.PointText}).forEach(migrateTextFont);pageSize={...(art.data.page||DEFAULT_PAGE)};selected=[];selectedNodes=[];path=null;node=null;paper.view.zoom=view.zoom;paper.view.center=view.center;modelLinks?.reset();refresh();persist();ensureDocumentFonts();modelLinks?.checkCurrent(history.at(-2));}
 function setTool(t){hideHandleSize();if(path)finish();tool=t;for(const id of ['stroke','width'])$(id).closest('label').hidden=['bucket','blob'].includes(t);document.querySelectorAll('.stroke-detail').forEach(label=>label.hidden=['bucket','blob'].includes(t));$('blob-settings').hidden=t!=='blob';if(['bucket','blob'].includes(t)){selected=[];$('no-fill').checked=false;$('fill').setNone(false);$('stroke-picker').hidden=true;$('stroke').setAttribute('aria-expanded','false');}node=null;selectedNodes=[];$('panel-nodes').hidden=t!=='nodes';if(t==='nodes'){if(activePanel!=='align')openPanel('style');if(selected.some(isObjectGroup))say('Ungroup to edit individual paths.');else if(selected.some(i=>i.data.shapeBuild))say('Edit the combined outline directly. Undo restores the original combination.');}else if(['text','pen','rectangle','ellipse','dropper','bucket','blob'].includes(t))openPanel('style');else if(activePanel==='nodes')openPanel(t==='select'?'dimensions':'style');document.querySelectorAll('[data-tool]').forEach(b=>b.classList.toggle('active',b.dataset.tool===t));$('tool-name').textContent=t[0].toUpperCase()+t.slice(1);$('hint').textContent=hints[t];refresh();}
 function finish(){if(!path)return;if(path.segments.length<2)path.remove();path=null;$('finish').hidden=true;commit();}
 function cancelPen(){if(!path)return;const unfinished=path;path=null;unfinished.remove();selected=selected.filter(item=>item!==unfinished);drag=null;$('finish').hidden=true;persist();}
@@ -281,7 +282,8 @@ var strokeControls=installStrokeControls({getSelection:()=>selected.filter(i=>!i
 var nodeTools=installNodeTools({paper,art,canvas,getTool:()=>tool,getSelection:()=>selected,getNodes:()=>selectedNodes,setSelection:(items,nodes)=>{selected=items;selectedNodes=nodes;node=null;},commit,say,nodePosition,detach:detachNodeBuild});
 var cornerControls=installCornerControls({paper,getTool:()=>tool,getUnit:()=>$('units').value,getUnitScale:()=>units[$('units').value],getNodes:()=>selectedNodes,getSelection:()=>selected,setSelection:(items,nodes)=>{selected=items;selectedNodes=nodes;node=null;},commit,refresh,say});
 var pathOffset=installPathOffset({paper,art,getSelection:()=>selected,getTool:()=>tool,unit:()=>$('units').value,unitScale:()=>units[$('units').value],commit});
-var model3D=installModel3D({paper,getSelection:()=>selected,getModel:()=>art.data.model3d,setModel:value=>{art.data.model3d=value;commit();},getUnit:()=>$('units').value,finish,say});
+var modelLinks=installLinkedModelUpdates({paper,getPaths:()=>art.children,getModel:()=>art.data.model3d,setModel:value=>{art.data.model3d=value;},undoDepth:s=>{const index=history.lastIndexOf(s);return index<0?0:history.length-1-index;},undoTo:s=>{const index=history.lastIndexOf(s);if(index<0)return;while(history.length>index+1)future.push(history.pop());restore(history.at(-1));},openModel:()=>document.getElementById('model3d-open').click()});
+var model3D=installModel3D({paper,getPaths:()=>art.children,getSelection:()=>selected,getModel:()=>art.data.model3d,setModel:(value,bindings)=>{modelLinks.accept(value,bindings);commit();},getUnit:()=>$('units').value,finish,say});
 let cursorPosition=null,penModifiers={ctrlKey:false,metaKey:false};
 function trackCursor(e){cursorPosition=e.pointerType==='touch'?null:{x:e.clientX,y:e.clientY};penModifiers={ctrlKey:e.ctrlKey,metaKey:e.metaKey};}
 canvas.addEventListener('pointermove',trackCursor);
@@ -613,7 +615,7 @@ $('png-export-dialog').addEventListener('close',()=>{++pngExportRevision;prepare
 $('export-png').onclick=()=>openPNGExport();
 $('export-editable-png').onclick=()=>openPNGExport(true);
 $('download-png').onclick=()=>downloadPNG(editablePNGExport);
-$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const imported=parseSVG(await file.text());if(!confirm('Replace this drawing with the selected SVG? Save your current SVG first if needed.'))return;setDrawingName(file.name);art.removeChildren();art.data.model3d=imported.model3d;pageSize=imported.page;imported.items.forEach(i=>art.addChild(i));selected=[];path=null;node=null;$('finish').hidden=true;setTool('select');commit();fit();canvas.focus({preventScroll:true});say('SVG opened. Select a shape to edit.');ensureDocumentFonts();}catch(error){say(error.message);}};
+$('open').onclick=()=>$('file').click();$('file').onchange=async e=>{const file=e.target.files[0];e.target.value='';if(!file)return;try{const imported=parseSVG(await file.text());if(!confirm('Replace this drawing with the selected SVG? Save your current SVG first if needed.'))return;setDrawingName(file.name);art.removeChildren();art.data.model3d=imported.model3d;pageSize=imported.page;imported.items.forEach(i=>art.addChild(i));modelLinks.reset({migrate:true});selected=[];path=null;node=null;$('finish').hidden=true;setTool('select');commit();fit();canvas.focus({preventScroll:true});say('SVG opened. Select a shape to edit.');ensureDocumentFonts();modelLinks.checkCurrent();}catch(error){say(error.message);}};
 $('new').onclick=()=>{if((art.children.length||art.data.model3d?.features?.length)&&!confirm('Start a new drawing? Save your SVG first if you want to keep this one.'))return;setDrawingName('vector-lab');art.removeChildren();delete art.data.model3d;pageSize={...DEFAULT_PAGE};selected=[];path=null;node=null;$('finish').hidden=true;commit();fit();};
 function editingText(e){return e.target.closest('input,textarea,select,[contenteditable="true"]');}
 function copySelection(e,cut=false){if(editingText(e)||!selected.length||drag)return;finish();clipboard=selected.map(i=>i.exportJSON({asString:true,precision:15}));pasteCount=0;e.preventDefault();e.clipboardData.setData('text/plain',serializeSVG(selected));if(cut){selected.forEach(item=>item.remove());selected=[];selectedNodes=[];node=null;commit();}say(cut?'Cut selection':'Copied selection');}
@@ -806,7 +808,7 @@ function recoverBrowserDrawing(){
     recoveredBrowserName=localStorage.getItem('vector-lab-name');
     drawingName=recoveredBrowserName||'vector-lab';
   }catch{say('Recovery unavailable. Save your SVG regularly.');}
-  history=[snapshot()];fit();
+  modelLinks?.reset({migrate:true});modelLinks?.prepare();history=[snapshot()];fit();modelLinks?.checkCurrent();
   return {snapshot:history[0],name:drawingName};
 }
 const initialRecoveryState=recoverBrowserDrawing();
