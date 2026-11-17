@@ -4,6 +4,8 @@ import {buildChamfer} from './model3d-chamfer.js';
 import {chamferCatalog} from './model3d-chamfer-analysis.js';
 import {stlSolid} from './model3d-stl-kernel.js';
 import {textureSolid} from './model3d-texture.js';
+import {sealMesh,photoSeal} from './model3d-seal.js';
+import {prepareSealMesh,sealMeshSTL,combineBinarySTL} from './model3d-seal-mesh.js';
 import {topology as shapeTopology} from './model3d-topology.js';
 
 // Sample geometry rather than kernel hash codes: hashes change on every rebuild.
@@ -109,7 +111,7 @@ function profileSolid(feature){
 // a source/profile/units change gives a different key and releases the old solid.
 export function createModelBuildCache(){
   let key=null,saved=null;
-  const clone=bodies=>new Map([...bodies].map(([id,body])=>[id,{...body,shape:body.shape.clone()}]));
+  const clone=bodies=>new Map([...bodies].map(([id,body])=>[id,{...body,...(body.shape?{shape:body.shape.clone()}:{})}]));
   return {get(value){return key===value&&saved?clone(saved):null;},set(value,bodies){if(key===value)return;if(saved)disposeBodies(saved);key=value;saved=clone(bodies);},dispose(){if(saved)disposeBodies(saved);saved=null;key=null;}};
 }
 
@@ -122,7 +124,12 @@ export function buildModel(model,{planarFallback=true,cache=null,progress=()=>{}
       if(reused&&index<prefix)continue;
       progress(`Building ${feature.name}…`);
       try{
-        if(feature.kind==='stl'){
+        if(feature.target&&bodies.get(feature.target)?.photoSeal)throw Error('Photo STL seals support engraving edits. Choose CAD / STEP in the seal feature to use solid modeling tools.');
+        if(feature.kind==='seal'){
+          const mesh=sealMesh(feature);
+          if(photoSeal(feature))bodies.set(feature.id,{id:feature.id,name:feature.name,photoSeal:true,...prepareSealMesh(mesh)});
+          else bodies.set(feature.id,{id:feature.id,name:feature.name,seal:true,shape:stlSolid({mesh,scale:1})});
+        }else if(feature.kind==='stl'){
           bodies.set(feature.id,{id:feature.id,name:feature.name,shape:stlSolid(feature),importedSTL:true});
         }else if(feature.kind==='extrusion'){
           if(feature.sourceError)throw Error(feature.sourceError);
@@ -175,7 +182,7 @@ export function buildModel(model,{planarFallback=true,cache=null,progress=()=>{}
           body.shape.delete();body.shape=next;
         }
         const body=bodies.get(feature.operation==='new'?feature.id:feature.target);
-        const volume=cad.measureVolume(body.shape);
+        const volume=body.photoSeal?body.volume:cad.measureVolume(body.shape);
         if(!Number.isFinite(volume)||volume<=1e-7)throw Error('The operation leaves no solid. Adjust the dimensions or target.');
       }catch(error){
         const message=typeof error?.message==='string'&&!/^\d+$/.test(error.message)?error.message:'The geometry could not be built. Try smaller dimensions or a simpler valid solid; imported STL meshes may need repair in the source app.';
@@ -187,10 +194,11 @@ export function buildModel(model,{planarFallback=true,cache=null,progress=()=>{}
   }catch(error){disposeBodies(bodies);throw error;}
 }
 
-export function disposeBodies(bodies){for(const {shape} of bodies.values())shape.delete();bodies.clear();}
+export function disposeBodies(bodies){for(const {shape} of bodies.values())shape?.delete();bodies.clear();}
 
 export function modelMeshes(bodies){
   return [...bodies.values()].map(body=>{
+    if(body.photoSeal)return {id:body.id,name:body.name,photoSeal:true,mesh:body.mesh,volume:body.volume,faces:[],edges:{lines:[],edgeGroups:[],planes:[]},chamferContours:[]};
     const mesh=body.shape.mesh({tolerance:.05,angularTolerance:.15});
     const edgeMesh=body.shape.meshEdges({tolerance:.05,angularTolerance:.15}),topology=new Map(),planes=[],planeKeys=new Map();
     function planeIdFor(normal,offset){
@@ -229,8 +237,11 @@ export function modelMeshes(bodies){
       }finally{face.delete();}
     }
     const visible=group=>{
-      if(!body.planarBevelTolerance)return true;
+      if(!body.planarBevelTolerance&&!body.seal)return true;
       const normals=adjacentNormals.get(group.edgeId);
+      // Sampling facets are not engraving boundaries. Hide shallow seams so
+      // the relief stays legible; retain sharp detail and the cylinder's rims.
+      if(body.seal&&normals?.length===2)return Math.abs(normals[0].reduce((sum,n,i)=>sum+n*normals[1][i],0))<Math.cos(12*Math.PI/180);
       // The generated bevel's internal surface triangles are tessellation,
       // rather than additional editable ridges. Keep cap and wall boundaries.
       if(normals?.length!==2||normals.some(n=>Math.abs(n[2])<.1||Math.abs(n[2])>.95))return true;
@@ -242,6 +253,14 @@ export function modelMeshes(bodies){
 
 export function exportModel(bodies,format){
   if(!bodies.size)throw Error('Add an extrusion or import an STL before exporting.');
+  const photos=[...bodies.values()].filter(body=>body.photoSeal);
+  if(photos.length){
+    if(format==='step')throw Error('Photo STL seals export as STL. Choose CAD / STEP in each seal feature for STEP export at CAD resolution.');
+    const cadBodies=new Map([...bodies].filter(([,body])=>body.shape));
+    const parts=photos.map(body=>sealMeshSTL(body.mesh));
+    if(cadBodies.size)return combineBinarySTL([exportModel(cadBodies,'stl'),...parts]);
+    return combineBinarySTL(parts);
+  }
   // compoundShapes consumes its inputs; exports must preserve the live model.
   const combined=cad.makeCompound([...bodies.values()].map(body=>body.shape.clone()));
   try{return format==='step'?combined.blobSTEP():combined.blobSTL({binary:true,tolerance:.02,angularTolerance:.1});}

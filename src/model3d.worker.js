@@ -49,7 +49,7 @@ self.onmessage=event=>{
         if(model&&currentKey!==JSON.stringify(model)){
           const next=calculate(model,progress);disposeBodies(bodies);bodies=next.bodies;currentKey=JSON.stringify(next.model);
         }
-        progress(`Preparing ${format.toUpperCase()}…`);const blob=exportModel(bodies,format);
+        progress(`Preparing ${format.toUpperCase()}…`);const blob=await exportModel(bodies,format);
         if(format==='stl'&&[...bodies.values()].some(body=>body.chamfers?.length)){
           progress('Checking the exported STL is watertight…');assertPrintableSTL(await blob.arrayBuffer());
         }

@@ -2,6 +2,7 @@ import {toolPreferences} from './tool-preferences.js';
 import {TRACE_PRESETS,tracePathData} from './image-tracing.js';
 import {createTraceRefinement} from './trace-refinement.js';
 import {TRACE_COLOR_LIMIT} from './trace-colors.js';
+import {installPreviewNavigation} from './preview-navigation.js';
 
 export function installImageTracing({getImage,apply,say}){
   const dialog=document.createElement('dialog');dialog.id='trace-dialog';dialog.setAttribute('aria-labelledby','trace-title');
@@ -24,7 +25,7 @@ export function installImageTracing({getImage,apply,say}){
   <div class="trace-options"><label id="trace-invert-control"><input id="trace-invert" type="checkbox"> Trace light areas instead</label><label id="trace-white-control" hidden><input id="trace-white" type="checkbox" checked> Leave white empty</label><label id="trace-holes-control"><input id="trace-holes" type="checkbox"> Fill enclosed holes</label><label id="trace-stack-control" hidden title="Overlap color layers to prevent pale seams. Turn off for separate color regions."><input id="trace-stack" type="checkbox" checked> Stack colors to hide seams</label><button id="trace-use-silhouette" hidden>Try solid silhouette</button><button id="trace-reset">Reset defaults</button></div>
   <fieldset id="trace-anchors-control" class="trace-anchors" hidden><legend>Color anchors</legend><div class="trace-anchor-actions"><button id="trace-sample-color" type="button" aria-pressed="false">Sample colors from original</button><button id="trace-clear-colors" type="button" disabled>Clear anchors</button><span id="trace-anchor-count">0 anchors</span></div><div id="trace-anchors" aria-label="Sampled color anchors"></div><small id="trace-anchor-help">Sample the main colors on the original preview. Anchors stay fixed; remaining colors are chosen automatically. Sample two browns to keep them separate. Grouping follows colors, not object outlines.</small></fieldset>
   <fieldset class="trace-refinement"><legend>Touch up the trace</legend><div class="trace-refinement-controls"><label>Tool <select id="trace-brush-mode"><option value="view">View only</option><option value="include">Include brush</option><option value="exclude">Exclude brush</option><option value="spot">Remove spot</option><option value="erase">Erase marks</option></select></label><label>Brush size <input id="trace-brush-size" type="range" min="2" max="100" value="20"><output id="trace-brush-size-value">20 px</output></label><button id="trace-edit-undo" disabled>Undo edit</button><button id="trace-edit-clear" disabled>Clear marks</button></div><small>Paint on either preview. Green includes missing parts; pink excludes shadows. Remove spot deletes a connected traced shape. Use a brush for shadows attached to the subject.</small></fieldset>
-  <div class="trace-zoom"><span>Preview zoom</span><button id="trace-zoom-out" aria-label="Zoom trace out">−</button><output id="trace-zoom-value">100%</output><button id="trace-zoom-in" aria-label="Zoom trace in">+</button><button id="trace-zoom-fit">Fit</button><small>Drag to pan with View only. Scroll over a preview to zoom.</small></div>
+  <div class="trace-zoom"><span>Preview zoom</span><button id="trace-zoom-out" aria-label="Zoom trace out">−</button><output id="trace-zoom-value">100%</output><button id="trace-zoom-in" aria-label="Zoom trace in">+</button><button id="trace-zoom-fit">Fit</button><button id="trace-pan" type="button" aria-pressed="false">Pan preview</button><small>Pan: drag with Pan preview or View only, hold Space, middle-drag, or scroll. Pinch or Ctrl/Cmd+scroll to zoom. Both previews move together.</small></div>
   <div class="trace-previews"><figure><figcaption>Visible image</figcaption><div class="trace-preview"><canvas id="trace-original" tabindex="0" aria-label="Original image preview"></canvas></div></figure><figure><figcaption>Vector paths</figcaption><div class="trace-preview" id="trace-result" tabindex="0" role="img" aria-label="Traced path preview"></div></figure></div>
   <p id="trace-status" role="status" aria-live="polite"></p><small id="trace-help">Simple uses our conservative limits of 1,000 nodes and 120 outlines. Closed paths include real holes, with no background rectangle or outline stroke. Use Simple for Tinkercad and cutting, and color for artwork.</small>
   <div class="trace-footer"><span>Replaces the image. Undo restores it.</span><button id="trace-cancel">Cancel</button><button id="trace-apply" class="primary" disabled>Convert to paths</button></div>`;
@@ -34,8 +35,9 @@ export function installImageTracing({getImage,apply,say}){
   dialog.addEventListener('input',event=>{if(event.target.matches('input,select'))preferences.save();});
   let session=null,result=null,worker=null,timer=null,revision=0,refinement=null,stroke=null,editHistory=[],presetChosen=false;
   let anchors=[],sampling=false;
-  let zoom=1,center={x:.5,y:.5},pan=null;
+  let zoom=1,center={x:.5,y:.5},panMode=false,pendingTouch=null;
   const previews=[originalCanvas.parentElement,el('result')];
+  previews[0].tabIndex=0;previews[0].setAttribute('aria-label','Original image viewport');
   function previewSize(viewport){
     const fit=Math.min(viewport.clientWidth/session.image.width,viewport.clientHeight/session.image.height);
     return {width:session.image.width*fit*zoom,height:session.image.height*fit*zoom};
@@ -48,6 +50,7 @@ export function installImageTracing({getImage,apply,say}){
       Object.assign(image.style,{width:size.width+'px',height:size.height+'px',left:(viewport.clientWidth/2+(.5-center.x)*size.width)+'px',top:(viewport.clientHeight/2+(.5-center.y)*size.height)+'px'});
     }
     el('zoom-value').textContent=Math.round(zoom*100)+'%';el('zoom-out').disabled=zoom<=1;el('zoom-in').disabled=zoom>=8;
+    navigation.sync();
   }
   function setZoom(next,viewport,point){
     if(stroke)return;
@@ -57,16 +60,11 @@ export function installImageTracing({getImage,apply,say}){
     center.x=Math.max(0,Math.min(1,center.x));center.y=Math.max(0,Math.min(1,center.y));updateZoom();
   }
   el('zoom-in').onclick=()=>setZoom(zoom*1.5);el('zoom-out').onclick=()=>setZoom(zoom/1.5);el('zoom-fit').onclick=()=>setZoom(1);
-  for(const viewport of previews){
-    viewport.addEventListener('wheel',e=>{e.preventDefault();setZoom(zoom*Math.exp(-e.deltaY*.002),viewport,{x:e.clientX,y:e.clientY});},{passive:false});
-    viewport.addEventListener('pointerdown',e=>{
-      if(!session||stroke||pan||e.button!==0||el('brush-mode').value!=='view'||sampling||zoom<=1)return;
-      e.preventDefault();viewport.setPointerCapture(e.pointerId);pan={id:e.pointerId,x:e.clientX,y:e.clientY,center:{...center},size:previewSize(viewport)};viewport.classList.add('trace-panning');
-    });
-    viewport.addEventListener('pointermove',e=>{if(pan?.id!==e.pointerId)return;center={x:Math.max(0,Math.min(1,pan.center.x-(e.clientX-pan.x)/pan.size.width)),y:Math.max(0,Math.min(1,pan.center.y-(e.clientY-pan.y)/pan.size.height))};updateZoom();});
-    const end=e=>{if(pan?.id===e.pointerId){pan=null;viewport.classList.remove('trace-panning');}};
-    viewport.addEventListener('pointerup',end);viewport.addEventListener('pointercancel',end);
-  }
+  const navigation=installPreviewNavigation({dialog,viewports:previews,isActive:()=>!!session&&dialog.open,panSelected:()=>panMode,dragToPan:()=>zoom>1&&el('brush-mode').value==='view'&&!sampling,
+    isEditing:()=>!!stroke||!!pendingTouch,cancelEdit:cancelStroke,
+    onPan(dx,dy,viewport){const size=previewSize(viewport);center.x=Math.max(0,Math.min(1,center.x-dx/size.width));center.y=Math.max(0,Math.min(1,center.y-dy/size.height));updateZoom();},
+    onZoom(ratio,viewport,point){setZoom(zoom*ratio,viewport,point);}});
+  el('pan').onclick=()=>{if(stroke||pendingTouch)return;panMode=!panMode;el('pan').setAttribute('aria-pressed',String(panMode));navigation.sync();};
   new ResizeObserver(updateZoom).observe(previews[0]);
   function stop(){clearTimeout(timer);timer=null;worker?.terminate();worker=null;}
   function settings(){return {pixelSizing:el('pixel-sizing').value,blockSize:Number(el('block').value),artworkWidth:session.artworkWidth,artworkHeight:session.artworkHeight,pixelSize:Number(el('pixel').value),mode:el('mode').value,preset:el('preset').value,colors:Number(el('colors').value),colorGrouping:el('grouping').value,colorAnchors:anchors.map(rgb=>[...rgb]),threshold:Number(el('threshold').value),noise:Number(el('noise').value),invert:el('invert').checked,ignoreWhite:el('white').checked,fillHoles:el('holes').checked,smoothing:Number(el('smoothing').value),backgroundTolerance:Number(el('background').value),outlineWidth:Number(el('outline').value),stackColors:el('stack').checked};}
@@ -99,6 +97,7 @@ export function installImageTracing({getImage,apply,say}){
       pixels.data[p+3]=Math.max(180,pixels.data[p+3]);
     }
     originalCanvas.getContext('2d').putImageData(pixels,0,0);el('edit-undo').disabled=!!stroke||!editHistory.length;el('edit-clear').disabled=!!stroke||!refinement.mask.some(Boolean);
+    el('pan').disabled=!!stroke||!!pendingTouch;
   }
   function updateBrush(){
     const mode=el('brush-mode').value,size=Number(el('brush-size').value);el('brush-size-value').textContent=size+' px';el('brush-size').disabled=mode==='view'||mode==='spot';
@@ -109,6 +108,7 @@ export function installImageTracing({getImage,apply,say}){
       cursor=`url("data:image/svg+xml,${encodeURIComponent(svg)}") ${center} ${center}, crosshair`;
     }
     originalCanvas.style.cursor=el('result').style.cursor=cursor;
+    navigation.sync();
   }
   function rememberEdit(){editHistory.push(refinement.mask.slice());if(editHistory.length>12)editHistory.shift();}
   function previewBounds(surface){return surface===originalCanvas?originalCanvas.getBoundingClientRect():el('result').querySelector('svg')?.getBoundingClientRect();}
@@ -120,8 +120,8 @@ export function installImageTracing({getImage,apply,say}){
       button.onclick=()=>{anchors.splice(index,1);renderAnchors();schedule();};el('anchors').append(button);
     });
   }
-  function sampleColor(e){
-    const bounds=originalCanvas.getBoundingClientRect();if(e.clientX<bounds.left||e.clientX>bounds.right||e.clientY<bounds.top||e.clientY>bounds.bottom)return;
+  function sampleColor(e,bounds=originalCanvas.getBoundingClientRect()){
+    if(e.clientX<bounds.left||e.clientX>bounds.right||e.clientY<bounds.top||e.clientY>bounds.bottom)return;
     e.preventDefault();const p=brushPoint(e,bounds),index=(Math.floor(p.y)*session.image.width+Math.floor(p.x))*4,data=session.image.data,alpha=data[index+3]/255;
     if(alpha<.5){el('status').textContent='Choose a visible part of the original image; transparency is left empty.';return;}
     const rgb=[0,1,2].map(c=>Math.round(data[index+c]*alpha+255*(1-alpha)));
@@ -131,33 +131,46 @@ export function installImageTracing({getImage,apply,say}){
     if(Math.min(...rgb)>=245)el('white').checked=false;
     preferences.save();renderAnchors();schedule();
   }
-  el('sample-color').onclick=()=>{sampling=!sampling;if(sampling){el('brush-mode').value='view';preferences.save();}updateBrush();};
+  el('sample-color').onclick=()=>{sampling=!sampling;if(sampling){panMode=false;el('pan').setAttribute('aria-pressed','false');el('brush-mode').value='view';preferences.save();}updateBrush();};
   el('clear-colors').onclick=()=>{anchors=[];renderAnchors();schedule();};
   function paint(p){
     const previous=stroke.last||p,steps=Math.max(1,Math.ceil(Math.hypot(p.x-previous.x,p.y-previous.y)/Math.max(1,stroke.radius/2)));
     for(let i=1;i<=steps;i++)refinement.brush(previous.x+(p.x-previous.x)*i/steps,previous.y+(p.y-previous.y)*i/steps,stroke.radius,stroke.value);
     stroke.last=p;renderMarks();
   }
+  function cancelStroke(){
+    pendingTouch=null;
+    if(!stroke)return;
+    refinement.mask.set(editHistory.pop());stroke=null;renderMarks();
+    if(result)el('apply').disabled=result.tooComplex||!result.shapes.length;else schedule();
+  }
+  function removeSpot(e,bounds){
+    if(!result){el('status').textContent='Wait for the trace preview before removing a spot.';return;}
+    const p=brushPoint(e,bounds);rememberEdit();
+    if(!refinement.removeSpot(p.x,p.y,result.selection,result.width,result.height)){editHistory.pop();el('status').textContent='Click a traced shape to remove that connected spot.';return;}
+    renderMarks();schedule();
+  }
   for(const surface of [originalCanvas,el('result')]){
     surface.addEventListener('pointerdown',e=>{
       const mode=el('brush-mode').value;if(!session||stroke||e.button!==0)return;
-      if(sampling){if(surface===originalCanvas)sampleColor(e);return;}
+      if(sampling){if(surface===originalCanvas){if(e.pointerType==='touch'){e.preventDefault();pendingTouch={id:e.pointerId,kind:'sample',x:e.clientX,y:e.clientY,bounds:originalCanvas.getBoundingClientRect()};surface.setPointerCapture(e.pointerId);}else sampleColor(e);}return;}
       if(mode==='view')return;
       const bounds=previewBounds(surface);if(!bounds||e.clientX<bounds.left||e.clientX>bounds.right||e.clientY<bounds.top||e.clientY>bounds.bottom)return;
       e.preventDefault();surface.focus({preventScroll:true});const p=brushPoint(e,bounds);
       if(mode==='spot'){
-        if(!result){el('status').textContent='Wait for the trace preview before removing a spot.';return;}
-        rememberEdit();if(!refinement.removeSpot(p.x,p.y,result.selection,result.width,result.height)){editHistory.pop();el('status').textContent='Click a traced shape to remove that connected spot.';return;}
-        renderMarks();schedule();return;
+        if(e.pointerType==='touch'){pendingTouch={id:e.pointerId,kind:'spot',x:e.clientX,y:e.clientY,bounds};surface.setPointerCapture(e.pointerId);}else removeSpot(e,bounds);return;
       }
       stop();++revision;el('apply').disabled=true;rememberEdit();surface.setPointerCapture(e.pointerId);
       stroke={id:e.pointerId,bounds,radius:Number(el('brush-size').value)*session.image.width/bounds.width/2,value:mode==='include'?1:mode==='exclude'?2:0};paint(p);
     });
-    surface.addEventListener('pointermove',e=>{if(stroke?.id===e.pointerId)paint(brushPoint(e,stroke.bounds));});
-    function endStroke(e){if(stroke?.id!==e.pointerId)return;if(e.type==='pointercancel')refinement.mask.set(editHistory.pop());else paint(brushPoint(e,stroke.bounds));stroke=null;renderMarks();schedule();}
+    surface.addEventListener('pointermove',e=>{if(pendingTouch?.id===e.pointerId&&Math.hypot(e.clientX-pendingTouch.x,e.clientY-pendingTouch.y)>=8)pendingTouch.moved=true;if(stroke?.id===e.pointerId)paint(brushPoint(e,stroke.bounds));});
+    function endStroke(e){
+      if(pendingTouch?.id===e.pointerId){const pending=pendingTouch;pendingTouch=null;if(e.type==='pointerup'&&!pending.moved){const tap={clientX:pending.x,clientY:pending.y,preventDefault:()=>e.preventDefault()};if(pending.kind==='sample')sampleColor(tap,pending.bounds);else removeSpot(tap,pending.bounds);}renderMarks();return;}
+      if(stroke?.id!==e.pointerId)return;if(e.type==='pointercancel')refinement.mask.set(editHistory.pop());else paint(brushPoint(e,stroke.bounds));stroke=null;renderMarks();schedule();
+    }
     surface.addEventListener('pointerup',endStroke);surface.addEventListener('pointercancel',endStroke);
   }
-  el('brush-mode').onchange=()=>{sampling=false;updateBrush();};el('brush-size').oninput=updateBrush;
+  el('brush-mode').onchange=()=>{sampling=false;panMode=false;el('pan').setAttribute('aria-pressed','false');updateBrush();};el('brush-size').oninput=updateBrush;
   function undoEdit(){if(stroke||!editHistory.length)return;refinement.mask.set(editHistory.pop());renderMarks();schedule();}
   el('edit-undo').onclick=undoEdit;el('edit-clear').onclick=()=>{if(stroke)return;rememberEdit();refinement.mask.fill(0);renderMarks();schedule();};
   dialog.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&!e.shiftKey&&!e.target.matches('input,select')){e.preventDefault();undoEdit();}});
@@ -180,9 +193,9 @@ export function installImageTracing({getImage,apply,say}){
   el('mode').addEventListener('input',()=>{if(!presetChosen)el('preset').value=el('mode').value==='color'?'balanced':'simple';});
   for(const name of ['mode','pixel','pixel-sizing','block','preset','colors','grouping','threshold','noise','invert','white','holes','smoothing','background','outline','stack'])el(name).addEventListener('input',schedule);
   el('use-silhouette').onclick=()=>{el('mode').value='silhouette';preferences.save();schedule();};
-  el('reset').onclick=()=>{if(stroke)return;preferences.reset();presetChosen=false;anchors=[];sampling=false;renderAnchors();updateBrush();schedule();};
+  el('reset').onclick=()=>{if(stroke)return;preferences.reset();presetChosen=false;anchors=[];sampling=false;panMode=false;el('pan').setAttribute('aria-pressed','false');renderAnchors();updateBrush();schedule();};
   for(const name of ['close','cancel'])el(name).onclick=()=>dialog.close();
-  dialog.addEventListener('close',()=>{++revision;stop();session=result=refinement=stroke=null;anchors=[];sampling=false;editHistory=[];pan=null;originalCanvas.width=originalCanvas.height=1;el('result').replaceChildren();});
+  dialog.addEventListener('close',()=>{++revision;stop();session=result=refinement=stroke=null;anchors=[];sampling=false;editHistory=[];pendingTouch=null;panMode=false;el('pan').setAttribute('aria-pressed','false');originalCanvas.width=originalCanvas.height=1;el('result').replaceChildren();});
   el('apply').onclick=()=>{
     if(stroke||!session||!result||result.tooComplex||!result.shapes.length)return;
     try{apply(session,result);dialog.close();}catch(error){el('status').textContent=error.message||'Could not create paths. Try again.';el('status').classList.add('trace-error');}
@@ -191,7 +204,7 @@ export function installImageTracing({getImage,apply,say}){
     try{
       session=getImage();if(!session)return;
       originalCanvas.width=session.image.width;originalCanvas.height=session.image.height;refinement=createTraceRefinement(session.image.width,session.image.height);
-      anchors=[];sampling=false;renderAnchors();zoom=1;center={x:.5,y:.5};presetChosen=presetChosen||preferences.hasSaved||el('preset').value!=='simple';editHistory=[];renderMarks();updateBrush();dialog.showModal();updateZoom();schedule();
+      anchors=[];sampling=false;panMode=false;pendingTouch=null;el('pan').setAttribute('aria-pressed','false');renderAnchors();zoom=1;center={x:.5,y:.5};presetChosen=presetChosen||preferences.hasSaved||el('preset').value!=='simple';editHistory=[];renderMarks();updateBrush();dialog.showModal();updateZoom();schedule();
     }catch(error){session=null;say(error.message||'Could not read this image for tracing.');}
   };
 }

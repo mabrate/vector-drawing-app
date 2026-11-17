@@ -2,6 +2,7 @@
 // coordinates and distances are millimeters; the drawing uses 96 px per inch.
 import {validSTLMesh,MAX_MODEL_TRIANGLES} from './model3d-stl.js';
 import {CHAMFER_KINDS} from './model3d-chamfer-intent.js';
+import {sealError,sealGrid,MAX_SEAL_PIXELS,MAX_PHOTO_SEAL_CELLS} from './model3d-seal.js';
 export const MM_PER_PIXEL=25.4/96;
 export const MAX_TREATMENT_EDGES=4000;
 export const MAX_SHELL_FACES=1000;
@@ -13,14 +14,18 @@ const identifier=value=>typeof value==='string'&&/^[a-zA-Z0-9_-]{1,80}$/.test(va
 
 export function validModel(model){
   if(!model||model.version!==1||!Array.isArray(model.features)||model.features.length>100)return false;
-  const ids=new Set(),bodies=new Set();let curves=0,edges=0,triangles=0;
+  const ids=new Set(),bodies=new Set();let curves=0,edges=0,triangles=0,sealPixels=0,sealCells=0;
   const wire=value=>Array.isArray(value)&&value.length>0&&value.length<=2000&&value.every(curve=>{
     curves++;return Array.isArray(curve)&&curve.length===4&&curve.every(point);
   });
   for(const feature of model.features){
     if(!feature||!identifier(feature.id)||ids.has(feature.id)||typeof feature.name!=='string'||feature.name.length>100)return false;
     ids.add(feature.id);
-    if(feature.kind==='stl'){
+    if(feature.kind==='seal'){
+      if(feature.operation!=='new'||feature.target!==null||sealError(feature))return false;
+      sealPixels+=feature.source.columns*feature.source.rows;bodies.add(feature.id);
+      const grid=sealGrid(feature);sealCells+=grid.columns*(grid.rows+1);
+    }else if(feature.kind==='stl'){
       if(feature.operation!=='new'||feature.target!==null||!finite(feature.scale,1000)||feature.scale<=0||!validSTLMesh(feature.mesh)||feature.mesh.vertices.some(value=>Math.abs(value*feature.scale)>100000))return false;
       triangles+=feature.mesh.triangles.length/3;bodies.add(feature.id);
     }else if(feature.kind==='extrusion'){
@@ -43,7 +48,7 @@ export function validModel(model){
       }
     }else return false;
   }
-  return curves<=4000&&edges<=12000&&triangles<=MAX_MODEL_TRIANGLES;
+  return curves<=4000&&edges<=12000&&triangles<=MAX_MODEL_TRIANGLES&&sealPixels<=MAX_SEAL_PIXELS*8&&sealCells<=MAX_PHOTO_SEAL_CELLS*2;
 }
 
 export function readModel(value){

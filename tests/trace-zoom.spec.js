@@ -28,7 +28,7 @@ test('trace zoom syncs previews, pans, preserves brush coordinates and fits agai
     expect(await original.evaluate((canvas,p)=>canvas.getContext('2d').getImageData(p.x,p.y,1,1).data[0],pixel)).toBeGreaterThan(100);
     await expect(page.locator('#trace-zoom-value')).toHaveText('225%');
     await page.locator('#trace-zoom-fit').click();await expect(page.locator('#trace-zoom-value')).toHaveText('100%');expect((await original.boundingBox()).width).toBeCloseTo(before.width,0);
-    await page.locator('#trace-brush-mode').selectOption('view');await page.mouse.move(x,y);await page.mouse.wheel(0,-300);await expect(page.locator('#trace-zoom-value')).not.toHaveText('100%');
+    await page.locator('#trace-brush-mode').selectOption('view');await page.mouse.move(x,y);await page.keyboard.down('Control');await page.mouse.wheel(0,-300);await page.keyboard.up('Control');await expect(page.locator('#trace-zoom-value')).not.toHaveText('100%');
     await page.locator('#trace-cancel').click();await page.locator('#trace-image').click();await expect(page.locator('#trace-zoom-value')).toHaveText('100%');
     await page.setViewportSize({width:390,height:844});await expect(page.locator('#trace-zoom-fit')).toBeVisible();
   }finally{await browser.close();}

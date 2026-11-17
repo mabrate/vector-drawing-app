@@ -124,7 +124,7 @@ export function createModelViewer(container,{onEdges,onFaces,onPaths,onBody}){
     edgeData.clear();boundaries.clear();projected=null;hoverEdges=[];hoverId='';hint.hidden=true;
     meshes=next;edgeIndexes.clear();for(const body of next)edgeIndexes.set(body.id,createEdgeSelectionIndex(body.edges));clear(solids);
     next.forEach((body,index)=>{
-      const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(body.mesh.vertices,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(body.mesh.normals,3));geometry.setIndex(body.mesh.triangles);
+      const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(body.mesh.vertices,3));geometry.setAttribute('normal',new THREE.Float32BufferAttribute(body.mesh.normals,3));geometry.setIndex(ArrayBuffer.isView(body.mesh.triangles)?new THREE.BufferAttribute(body.mesh.triangles,1):body.mesh.triangles);
       geometry.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(body.mesh.vertices.length),3));
       const settings={roughness:.55,metalness:.05,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1};
       // Color selected faces through vertex colors, keeping even finely faceted
