@@ -2,7 +2,7 @@ import {emptyModel,readModel,withoutFeature,MM_PER_PIXEL,MAX_TREATMENT_EDGES,MAX
 import {drawingPaths} from './model3d-paths.js';
 import {readSTL,MAX_STL_BYTES,MAX_MODEL_TRIANGLES} from './model3d-stl.js';
 import {inspectChamfer,selectionContours,chamferLabel} from './model3d-chamfer-intent.js';
-import {sealArtwork,snapshotSealArtwork,sealMinimumDiameter,sealError,sealGrid,sealPixels,photoSeal,sealEffect} from './model3d-seal.js';
+import {sealArtwork,snapshotSealArtwork,sealMinimumDiameter,sealArtworkHeight,sealError,sealGrid,sealPixels,photoSeal,sealEffect} from './model3d-seal.js';
 import './model3d.css';
 
 export function installModel3D({paper,getPaths,getSelection,getModel,setModel,getUnit,finish,say}){
@@ -36,6 +36,8 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
             <label>Surface <select id="model3d-seal-surface"><option value="photo">Photo STL · high detail</option><option value="cad">CAD / STEP</option></select></label>
             <button id="model3d-seal-photo-detail" type="button">Use fine photo detail (0.05 mm)</button>
             <div class="model3d-pair"><label>Around repeats <input id="model3d-seal-around" type="number" min="1" max="16" step="1"></label><label>Vertical repeats <input id="model3d-seal-vertical" type="number" min="1" max="16" step="1"></label></div>
+            <div class="model3d-pair"><label>Around gap <input id="model3d-seal-gapAround" type="number" min="0" step="any"></label><label>Vertical gap <input id="model3d-seal-gapVertical" type="number" min="0" step="any"></label></div>
+            <small>Gaps use the selected units. Around gap includes the wrap seam; vertical gap separates rows. The cylinder grows to keep artwork at its original size.</small>
             <label>Diameter <input id="model3d-seal-diameter" type="number" min="0.0001" step="any"></label>
             <button id="model3d-seal-fit" type="button">Fit diameter to artwork</button>
             <p id="model3d-seal-size" class="model3d-help" role="status"></p>
@@ -108,7 +110,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   const entry=document.createElement('button');entry.id='model3d-open';entry.textContent='3D model…';document.querySelector('header nav').insertBefore(entry,document.getElementById('save'));
   const extrude=document.createElement('button');extrude.id='extrude-path';extrude.textContent='Extrude…';document.querySelector('.object-actions').append(extrude);
   const factors={mm:1,in:25.4,px:MM_PER_PIXEL,pt:25.4/72};
-  let artwork=[],sealSourceId='',sealAround=1,sealSourceError='';
+  let artwork=[],sealSourceId='',sealAround=1,sealGapAround=0,sealSourceError='';
   let working=emptyModel(),catalog=[],pathIds=[],hiddenPaths=new Set(),hiddenBodies=new Set(),bodyId=null;
   let tool='select',draft=null,editingId=null,replacingProfile=false,edges=[],faces=[],edgeOptions=[],pickMode='bodies',previewing=false;
   let viewer=null,worker=null,sequence=0,latestId=0,inFlight=null,queued=null,timer=null,session=0,loading=false,exporting=false;
@@ -360,9 +362,9 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
     if(!draft?.source){for(const id of ['seal-source-size','seal-size','seal-detail-summary'])$(id).textContent='';return;}
     const source=draft.source;
     $('seal-source-size').textContent=`Artwork: ${format(source.width)} × ${format(source.height)} ${unit} · ${source.columns} × ${source.rows} samples.`;
-    const blank=Math.max(0,draft.diameter*Math.PI-source.width*draft.around);
-    const height=source.height*draft.vertical+(draft.marginTop??0)+(draft.marginBottom??0);
-    $('seal-size').textContent=`Height ${format(height)} ${unit} · minimum diameter ${format(sealMinimumDiameter(draft))} ${unit} · blank wrap ${format(blank)} ${unit}.`;
+    const blank=Math.max(0,draft.diameter*Math.PI-sealMinimumDiameter(draft)*Math.PI);
+    const height=sealArtworkHeight(draft)+(draft.marginTop??0)+(draft.marginBottom??0);
+    $('seal-size').textContent=`Height ${format(height)} ${unit} · minimum diameter ${format(sealMinimumDiameter(draft))} ${unit} · extra blank wrap ${format(blank)} ${unit}.`;
     if(!sealError(draft)){
       const grid=sealGrid(draft),photo=photoSeal(draft);
       $('seal-detail-summary').textContent=`${grid.columns} × ${grid.rows} surface cells · ${2*grid.columns*(grid.rows+1)} triangles · surface detail ${format(grid.pitch)} ${unit} · artwork detail ${format(grid.sourcePitch)} ${unit}. `+
@@ -376,7 +378,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   function showSealFields(){
     $('seal-source').replaceChildren(new Option(draft?.source?`Saved: ${draft.source.name}`:'Choose drawing artwork…',''),...artwork.map(entry=>new Option(entry.name,entry.id)));
     $('seal-source').value=sealSourceId;
-    for(const key of ['diameter','depth','detail','marginTop','marginBottom'])$('seal-'+key).value=format(draft[key]??0);
+    for(const key of ['diameter','depth','detail','marginTop','marginBottom','gapAround','gapVertical'])$('seal-'+key).value=format(draft[key]??0);
     $('seal-effect').value=sealEffect(draft);$('seal-draftAngle').value=draft.draftAngle??0;
     showSealDraft();
     $('seal-surface').value=draft.surface||'cad';
@@ -429,8 +431,8 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
     if(tool==='select'){draft=null;showFields();updateHistory();build(working,'idle');return;}
     const id=feature?.id||crypto.randomUUID(),name=nameOverride||`${labels[tool]} ${working.features.filter(entry=>entry.kind===(extrusionTool()?'extrusion':tool)).length+1}`;
     sealSourceId='';sealSourceError='';
-    draft=feature?structuredClone(feature):tool==='seal'?{id,name,kind:'seal',operation:'new',target:null,source:null,surface:'photo',effect:'deboss',draftAngle:0,marginTop:0,marginBottom:0,around:1,vertical:1,diameter:1,depth:1,detail:.1,engrave:'darkest',mirror:true}:tool==='stl'?{id,name,kind:'stl',operation:'new',target:null,scale:1,mesh}:tool==='texture'?{id,name,kind:'texture',target:bodyId,faces:[],pattern:'ribs',mode:'raised',depth:.5,width:1,spacing:4,angle:0}:extrusionTool()?{id,name,kind:'extrusion',operation:{extrude:'new',join:'join',cut:'cut'}[tool],target:tool==='extrude'?null:bodyId,profile:[],height:10,start:0,draft:0}:tool==='shell'?{id,name,kind:'shell',target:bodyId,thickness:1,direction:'inside',faces:[]}:{id,name,kind:tool,target:bodyId,amount:1,edges:[]};
-    if(tool==='seal')sealAround=draft.around;
+    draft=feature?structuredClone(feature):tool==='seal'?{id,name,kind:'seal',operation:'new',target:null,source:null,surface:'photo',effect:'deboss',draftAngle:0,marginTop:0,marginBottom:0,gapAround:0,gapVertical:0,around:1,vertical:1,diameter:1,depth:1,detail:.1,engrave:'darkest',mirror:true}:tool==='stl'?{id,name,kind:'stl',operation:'new',target:null,scale:1,mesh}:tool==='texture'?{id,name,kind:'texture',target:bodyId,faces:[],pattern:'ribs',mode:'raised',depth:.5,width:1,spacing:4,angle:0}:extrusionTool()?{id,name,kind:'extrusion',operation:{extrude:'new',join:'join',cut:'cut'}[tool],target:tool==='extrude'?null:bodyId,profile:[],height:10,start:0,draft:0}:tool==='shell'?{id,name,kind:'shell',target:bodyId,thickness:1,direction:'inside',faces:[]}:{id,name,kind:tool,target:bodyId,amount:1,edges:[]};
+    if(tool==='seal'){sealAround=draft.around;sealGapAround=draft.gapAround??0;}
     replacingProfile=!feature;if(feature){pathIds=[];bodyId=feature.target||feature.id;edges=(feature.edges||[]).map(key=>({body:feature.target,key}));faces=(feature.faces||[]).map(key=>({body:feature.target,key}));}
     pickMode=extrusionTool()?'paths':faceTool()?'faces':['stl','seal'].includes(tool)?'bodies':'edges';
     if(tool==='seal'&&!feature){const entry=artwork.find(entry=>entry.selected)||artwork[0];if(entry)try{draft.source=snapshotSealArtwork(paper,entry,MM_PER_PIXEL);sealSourceId=entry.id;draft.diameter=sealMinimumDiameter(draft);}catch(error){sealSourceError=error.message;}}
@@ -453,12 +455,18 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
       if(!photoSeal(draft)&&$('seal-detail').valueAsNumber*factors[unit]<.1)$('seal-detail').value=format(.1);
       $('seal-detail').min=(photoSeal(draft) ? .02 : .1)/factors[unit];
       const around=$('seal-around').valueAsNumber;
-      if(around!==sealAround&&draft.source&&Number.isInteger(around)&&around>0&&around<=16){const blank=Math.max(0,draft.diameter*Math.PI-draft.source.width*sealAround);draft.diameter=(draft.source.width*around+blank)/Math.PI;$('seal-diameter').value=format(draft.diameter);sealAround=around;}
       draft.around=around;draft.vertical=$('seal-vertical').valueAsNumber;
-      for(const key of ['diameter','depth','detail','marginTop','marginBottom']){
+      for(const key of ['diameter','depth','detail','marginTop','marginBottom','gapAround','gapVertical']){
         const input=$('seal-'+key),previous=draft[key]??0;
         // Unit changes round the display, not the saved physical dimensions.
         draft[key]=input.value===format(previous)?previous:input.valueAsNumber*factors[unit];
+      }
+      if(draft.source&&Number.isInteger(around)&&around>0&&around<=16&&Number.isFinite(draft.gapAround)&&draft.gapAround>=0&&draft.gapAround<=10000){
+        if(around!==sealAround||draft.gapAround!==sealGapAround){
+          const blank=Math.max(0,draft.diameter*Math.PI-(draft.source.width+sealGapAround)*sealAround);
+          draft.diameter=sealMinimumDiameter(draft)+blank/Math.PI;$('seal-diameter').value=format(draft.diameter);
+        }
+        sealAround=around;sealGapAround=draft.gapAround;
       }
       const minDetail=photoSeal(draft) ? .02 : .1;
       if(Math.abs(draft.detail-minDetail)<factors[unit]*.000001)draft.detail=minDetail;
@@ -537,7 +545,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   $('seal-photo-detail').onclick=()=>{$('seal-surface').value='photo';$('seal-detail').value=format(.05);parametersChanged();};
   $('seal-source').onchange=()=>chooseSealSource($('seal-source').value);
   $('seal-fit').onclick=()=>{if(!draft?.source)return;draft.diameter=sealMinimumDiameter(draft);$('seal-diameter').value=format(draft.diameter);parametersChanged();};
-  for(const id of ['seal-around','seal-vertical','seal-diameter','seal-depth','seal-detail','seal-marginTop','seal-marginBottom','seal-draftAngle'])$(id).addEventListener('input',parametersChanged);
+  for(const id of ['seal-around','seal-vertical','seal-diameter','seal-depth','seal-detail','seal-marginTop','seal-marginBottom','seal-gapAround','seal-gapVertical','seal-draftAngle'])$(id).addEventListener('input',parametersChanged);
   for(const id of ['seal-engrave','seal-mirror','seal-effect'])$(id).onchange=parametersChanged;
   for(const id of ['name','height','start','draft','shell-thickness','edge-size','texture-depth','texture-width','texture-spacing','texture-angle'])$(id).addEventListener('input',parametersChanged);
   for(const id of ['shell-direction','texture-pattern','texture-mode','stl-units'])$(id).onchange=parametersChanged;

@@ -67,9 +67,13 @@ export function selectionProfiles(paper,items){
     if(!(item instanceof paper.PathItem))throw Error('Use closed vector paths. Convert text or strokes to paths first; images cannot be extruded.');
     const source=item instanceof paper.CompoundPath?item.children:[item];
     if(!source.length||source.some(path=>!path.closed||path.segments.length<2))throw Error('Close every selected path before extruding it.');
-    let normalized;
+    let copy,normalized;
     try{
-      normalized=item.unite(item,{insert:false});
+      // Paper can discard a compound's matrix when a boolean reduces it to
+      // one Path. Bake its own transform into a detached copy first, keeping
+      // the original artwork and its enclosing group transforms untouched.
+      copy=item.clone({insert:false});copy.applyMatrix=true;
+      normalized=copy.unite(copy,{insert:false});
       const paths=normalized instanceof paper.CompoundPath?normalized.children:[normalized];
       const loops=paths.filter(path=>Math.abs(path.area)>1e-7).map(path=>({path,area:Math.abs(path.area),parent:null,depth:0})).sort((a,b)=>b.area-a.area);
       if(!loops.length)throw Error('This path does not enclose a filled area.');
@@ -90,7 +94,7 @@ export function selectionProfiles(paper,items){
         });
       });
       for(const loop of loops.filter(loop=>loop.depth%2===0))profiles.push({outer:wire(loop.path),holes:loops.filter(child=>child.parent===loop&&child.depth%2===1).map(child=>wire(child.path))});
-    }finally{normalized?.remove();}
+    }finally{normalized?.remove();copy?.remove();}
   }
   items.forEach(add);
   return profiles;

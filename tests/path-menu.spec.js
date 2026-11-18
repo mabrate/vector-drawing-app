@@ -4,7 +4,7 @@ test.use({launchOptions:{executablePath:'/usr/bin/google-chrome'}});
 async function load(page,content){page.once('dialog',d=>d.accept());await page.locator('#file').setInputFiles({name:'paths.svg',mimeType:'image/svg+xml',buffer:Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="1056" height="816">${content}</svg>`)});await expect(page.locator('#status')).toContainText('SVG opened');await page.keyboard.press('Control+a');}
 for(const viewport of [{width:1280,height:800},{width:390,height:844},{width:640,height:480}])test(`Path menu is accessible and stays inside the screen at ${viewport.width}`,async({page})=>{
  await page.setViewportSize(viewport);await page.goto('/');await openPathMenu(page);
- await expect(page.locator('#path-menu button')).toHaveCount(5);
+ await expect(page.locator('#path-menu button')).toHaveCount(6);
  for(const action of await page.locator('#path-menu button').all())await expect(action).toBeDisabled();
  await page.keyboard.press('Escape');await expect(page.locator('#path-menu')).toBeHidden();await expect(page.locator('#path-menu-button')).toBeFocused();
  await load(page,'<path d="M200 200h150v100H200z" stroke="black" stroke-width="8" fill="red"/><path d="M280 240h150v100H280z" fill="blue"/>');

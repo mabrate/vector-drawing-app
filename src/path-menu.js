@@ -2,7 +2,7 @@ export function installPathMenu({beforeOpen}){
  const button=document.createElement('button');button.id='path-menu-button';button.type='button';button.textContent='Path ▾';button.setAttribute('aria-haspopup','menu');button.setAttribute('aria-expanded','false');button.setAttribute('aria-controls','path-menu');
  document.getElementById('dimensions-tool').after(button);
  const menu=document.createElement('div');menu.id='path-menu';menu.hidden=true;menu.setAttribute('role','menu');menu.setAttribute('aria-label','Path');
- for(const [selector,label] of [['[data-boolean=unite]','Union'],['[data-boolean=subtract]','Subtract'],['[data-boolean=intersect]','Intersection'],['#offset-path','Offset Path…'],['#stroke-to-path','Stroke to Path']]){
+ for(const [selector,label] of [['[data-boolean=unite]','Union'],['[data-boolean=subtract]','Subtract'],['[data-boolean=intersect]','Intersection'],['#offset-path','Offset Path…'],['#stroke-to-path','Stroke to Path'],['#text-to-path','Text to Path']]){
   const action=document.querySelector(selector),icon=action.querySelector('svg');action.replaceChildren();if(icon)action.append(icon);
   const text=document.createElement('span');text.textContent=label;action.append(text);action.hidden=false;action.setAttribute('aria-label',label);action.title=label;action.setAttribute('role','menuitem');action.tabIndex=-1;menu.append(action);
  }

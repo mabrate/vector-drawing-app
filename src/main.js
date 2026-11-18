@@ -6,6 +6,8 @@ import {installLinkedModelUpdates} from './model3d-link-updates.js';
 import {readModel} from './model3d-data.js';
 import {installPathMenu} from './path-menu.js';
 import {strokeToPath,canConvertStroke} from './stroke-to-path.js';
+import {selectedTexts,textToPath} from './text-to-path.js';
+var convertingText=false;
 import {alphaBounds} from './alpha-bounds.js';
 import {embedEditableSVG,readEditableSVG} from './editable-png.js';
 import {createPNG} from './png-export.js';
@@ -100,7 +102,7 @@ function finish(){if(!path)return;if(path.segments.length<2)path.remove();path=n
 function cancelPen(){if(!path)return;const unfinished=path;path=null;unfinished.remove();selected=selected.filter(item=>item!==unfinished);drag=null;$('finish').hidden=true;persist();}
 function undoPenNode(){if(!path)return;path.lastSegment.remove();if(!path.segments.length)cancelPen();else persist();refresh();}
 function fit(){viewFitted=true;hideHandleSize();paper.view.zoom=Math.max(.1,Math.min((paper.view.viewSize.width-50)/pageSize.width,(paper.view.viewSize.height-50)/pageSize.height));paper.view.center=new paper.Point(pageSize.width/2,pageSize.height/2);refresh();}
-function syncControls(){$('hint').textContent=tool==='select'&&selected.length>1?'Drag shapes to move the selection. Shift-drag adds enclosed shapes with a selection box. Green marks the alignment reference.':hints[tool];for(const control of document.querySelectorAll('.stack-controls,#dimensions-tool'))control.hidden=tool==='nodes';for(const id of ['duplicate','delete','flip-horizontal','flip-vertical','raise','lower','front','back'])$(id).disabled=!selected.length;document.querySelectorAll('[data-boolean]').forEach(button=>button.disabled=selected.length!==2);$('group-objects').disabled=selected.length<2;$('ungroup-objects').disabled=!selected.some(isObjectGroup);$('break-apart').disabled=!selected.some(i=>i.data.shapeBuild);for(const button of document.querySelectorAll('#group-objects,#ungroup-objects,#break-apart'))button.hidden=button.disabled;for(const id of ['duplicate','flip-horizontal','flip-vertical'])$(id).hidden=tool==='nodes';for(const group of document.querySelectorAll('.toolbar-icon-group'))group.hidden=[...group.children].every(button=>button.hidden);$('canvas-undo').disabled=!path&&history.length<=1;$('canvas-redo').disabled=!future.length;pathOffset?.sync();model3D?.sync();if($('stroke-to-path'))$('stroke-to-path').disabled=!selected.length||!selected.every(item=>canConvertStroke(paper,item));syncText();$('dropper-settings').hidden=tool!=='dropper';syncCrop();selectedNodes=selectedNodes.filter(s=>s.path?.isInserted()&&selected.includes(s.path)||s.path?.parent instanceof paper.CompoundPath&&selected.includes(s.path.parent));nodeTools?.sync();cornerControls?.sync();$('node-count').textContent=`${selectedNodes.length} node${selectedNodes.length===1?'':'s'} selected`;if(tool==='nodes')$('delete').disabled=!selectedNodes.length;$('delete').title=`${tool==='nodes'?'Delete selected nodes':'Delete selected objects'} (Delete / Backspace)`;$('delete').setAttribute('aria-label',tool==='nodes'?'Delete selected nodes':'Delete selected objects');syncSelectedStyle();strokeControls?.sync();sidebarSelects?.sync();}
+function syncControls(){$('hint').textContent=tool==='select'&&selected.length>1?'Drag shapes to move the selection. Shift-drag adds enclosed shapes with a selection box. Green marks the alignment reference.':hints[tool];for(const control of document.querySelectorAll('.stack-controls,#dimensions-tool'))control.hidden=tool==='nodes';for(const id of ['duplicate','delete','flip-horizontal','flip-vertical','raise','lower','front','back'])$(id).disabled=!selected.length;document.querySelectorAll('[data-boolean]').forEach(button=>button.disabled=selected.length!==2);$('group-objects').disabled=selected.length<2;$('ungroup-objects').disabled=!selected.some(isObjectGroup);$('break-apart').disabled=!selected.some(i=>i.data.shapeBuild);for(const button of document.querySelectorAll('#group-objects,#ungroup-objects,#break-apart'))button.hidden=button.disabled;for(const id of ['duplicate','flip-horizontal','flip-vertical'])$(id).hidden=tool==='nodes';for(const group of document.querySelectorAll('.toolbar-icon-group'))group.hidden=[...group.children].every(button=>button.hidden);$('canvas-undo').disabled=!path&&history.length<=1;$('canvas-redo').disabled=!future.length;pathOffset?.sync();model3D?.sync();if($('stroke-to-path'))$('stroke-to-path').disabled=!selected.length||!selected.every(item=>canConvertStroke(paper,item));if($('text-to-path'))$('text-to-path').disabled=convertingText||!selectedTexts(paper,selected).length;syncText();$('dropper-settings').hidden=tool!=='dropper';syncCrop();selectedNodes=selectedNodes.filter(s=>s.path?.isInserted()&&selected.includes(s.path)||s.path?.parent instanceof paper.CompoundPath&&selected.includes(s.path.parent));nodeTools?.sync();cornerControls?.sync();$('node-count').textContent=`${selectedNodes.length} node${selectedNodes.length===1?'':'s'} selected`;if(tool==='nodes')$('delete').disabled=!selectedNodes.length;$('delete').title=`${tool==='nodes'?'Delete selected nodes':'Delete selected objects'} (Delete / Backspace)`;$('delete').setAttribute('aria-label',tool==='nodes'?'Delete selected nodes':'Delete selected objects');syncSelectedStyle();strokeControls?.sync();sidebarSelects?.sync();}
 function refresh({interactive=false}={}){
 if(refreshFrame!==null){cancelAnimationFrame(refreshFrame);refreshFrame=null;}
 cancelPenPreviewFrame();
@@ -956,6 +958,25 @@ strokeToPathButton.onclick=()=>{
  catch(error){prepared.forEach(p=>p.result.remove());say(error.message);return;}
  for(const {item,result} of prepared){art.insertChild(item.index,result);item.remove();}
  selected=prepared.map(p=>p.result);selectedNodes=[];node=null;commit();say('Stroke converted to editable paths.');
+};
+const textToPathButton=document.createElement('button');textToPathButton.id='text-to-path';textToPathButton.textContent='Text to Path';document.querySelector('.object-actions').append(textToPathButton);
+textToPathButton.onclick=async()=>{
+ if(convertingText)return;
+ finish();const originals=[...selected],texts=selectedTexts(paper,originals),revision=snapshot(),prepared=[];
+ if(!texts.length)return;
+ convertingText=true;refresh();say('Converting text to paths…');
+ try{
+  const fonts=await Promise.all(texts.map(item=>fontLibrary.ensure(item.fontFamily,item.fontWeight==='bold'||Number(item.fontWeight)>=600,textFormat(item).italic)));
+  // Loading a font can take time. Discard this operation if the drawing or
+  // selection changed, rather than applying it to a newer editing session.
+  if(snapshot()!==revision||selected.length!==originals.length||selected.some((item,index)=>item!==originals[index])||texts.some(item=>!item.isInserted()))throw Error('Drawing changed. Select the text and try again.');
+  texts.forEach((item,index)=>prepared.push({item,result:textToPath(paper,item,fonts[index])}));
+  for(const {item,result} of prepared)item.replaceWith(result);
+  selected=originals.map(item=>prepared.find(entry=>entry.item===item)?.result||item);
+  selectedNodes=[];node=null;textSelection=null;
+  commit();say('Text converted to editable paths. Undo restores the text.');
+ }catch(error){prepared.forEach(entry=>entry.result.remove());say(error.message||'Could not convert text to paths.');}
+ finally{convertingText=false;refresh();}
 };
 installPathMenu({beforeOpen:()=>{finish();selected=selected.filter(item=>item.isInserted());refresh();}});
 const mobileTools=document.createElement('button');mobileTools.id='mobile-tools';mobileTools.className='mobile-menu-button';mobileTools.textContent='Tools';mobileTools.setAttribute('aria-expanded','false');mobileTools.setAttribute('aria-controls','drawing-tools');

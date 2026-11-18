@@ -30,11 +30,13 @@ export function validSealSource(source){
   return [1,2].includes(source.channels)&&typeof source.packed==='string'&&source.packed.length===Math.ceil(bytes/3)*4&&
     /^[A-Za-z0-9+/]*={0,2}$/.test(source.packed)&&source.packed.endsWith('='.repeat(padding))&&(padding>0?source.packed.at(-padding-1)!=='=':!source.packed.endsWith('='));
 }
-export const sealMinimumDiameter=feature=>feature.source?feature.source.width*feature.around/Math.PI:0;
+export const sealMinimumDiameter=feature=>feature.source?(feature.source.width+(feature.gapAround??0))*feature.around/Math.PI:0;
+export const sealArtworkHeight=feature=>feature.source.height*feature.vertical+(feature.gapVertical??0)*(feature.vertical-1);
 export const sealEffect=feature=>feature.effect??'deboss';
 export function sealError(feature){
   if(!validSealSource(feature.source))return 'Choose an image or path from the drawing for the seal.';
   if(![feature.around,feature.vertical].every(n=>Number.isInteger(n)&&n>=1&&n<=16))return 'Use whole repeat counts from 1 to 16.';
+  if(['gapAround','gapVertical'].some(key=>feature[key]!==undefined&&(!Number.isFinite(feature[key])||feature[key]<0||feature[key]>10000)))return 'Use nonnegative repeat gaps up to 10,000 mm.';
   if(!positive(feature.diameter)||feature.diameter+1e-7<sealMinimumDiameter(feature))return 'Diameter must fit every repeat at its original size. Use Fit diameter, or enter a larger diameter.';
   if(feature.effect!==undefined&&!['emboss','deboss'].includes(feature.effect))return 'Choose Emboss or Deboss for the cylinder surface.';
   if(feature.draftAngle!==undefined&&(!Number.isFinite(feature.draftAngle)||feature.draftAngle<0||feature.draftAngle>80))return 'Use a seal draft angle from 0° (off) to 80°.';
@@ -44,12 +46,12 @@ export function sealError(feature){
   const minDetail=photoSeal(feature) ? .02 : .1;
   if(!positive(feature.detail)||feature.detail<minDetail||feature.detail>5)return `Use a detail size from ${minDetail} to 5 mm.`;
   if(!['darkest','lightest'].includes(feature.engrave)||typeof feature.mirror!=='boolean')return 'Choose the color to engrave and the mirror setting.';
-  if(feature.source.height*feature.vertical+(feature.marginTop??0)+(feature.marginBottom??0)>10000)return 'The cylinder height, including repeats and margins, must be no more than 10,000 mm.';
+  if(sealArtworkHeight(feature)+(feature.marginTop??0)+(feature.marginBottom??0)>10000)return 'The cylinder height, including repeats, gaps and margins, must be no more than 10,000 mm.';
   return '';
 }
 
 export function sealGrid(feature){
-  const circumference=feature.diameter*Math.PI,artHeight=feature.source.height*feature.vertical,marginTop=feature.marginTop??0,marginBottom=feature.marginBottom??0,height=artHeight+marginTop+marginBottom;
+  const circumference=feature.diameter*Math.PI,artHeight=sealArtworkHeight(feature),marginTop=feature.marginTop??0,marginBottom=feature.marginBottom??0,height=artHeight+marginTop+marginBottom;
   const marginRows=Number(marginTop>0)+Number(marginBottom>0);
   // Preserve at least four samples per motif in either direction. A bounded
   // grid avoids unbounded CAD work; report its actual pitch in the tool.
@@ -61,7 +63,30 @@ export function sealGrid(feature){
   rows=Math.max(feature.vertical*4,Math.floor(rows*factor));
   columns=Math.min(columns,Math.floor(budget/(feature.vertical*4+1+marginRows)));
   rows=Math.min(rows,Math.floor(budget/columns)-1-marginRows);
-  return {columns,rows:rows+marginRows,artRows:rows,artHeight,marginTop,marginBottom,circumference,height,pitch:Math.max(circumference/columns,artHeight/rows),sourcePitch:Math.max(feature.source.width/feature.source.columns,feature.source.height/feature.source.rows),limited:factor<1};
+  const gapAround=feature.gapAround??0,gapVertical=feature.gapVertical??0,wrappedWidth=(feature.source.width+gapAround)*feature.around;
+  const distances=gapAround?spacedAxis(feature.source.width,feature.around,gapAround,columns,Math.max(0,circumference-wrappedWidth),true):null;
+  const axial=gapVertical&&feature.vertical>1?spacedAxis(feature.source.height,feature.vertical,gapVertical,rows):null;
+  const maxStep=values=>{let step=0;for(let i=1;i<values.length;i++)step=Math.max(step,values[i]-values[i-1]);return step;};
+  return {columns,rows:rows+marginRows,artRows:rows,artHeight,marginTop,marginBottom,circumference,height,distances,axial,pitch:Math.max(distances?maxStep(distances):circumference/columns,axial?maxStep(axial):artHeight/rows),sourcePitch:Math.max(feature.source.width/feature.source.columns,feature.source.height/feature.source.rows),limited:factor<1};
+}
+
+// Allocate the existing bounded grid across artwork and blank intervals.
+// Exact boundary samples keep even gaps smaller than the detail pitch blank.
+function spacedAxis(size,repeats,gap,steps,extra=0,wrap=false){
+  const bands=[];
+  for(let i=0;i<repeats;i++){
+    bands.push({length:size,steps:3});
+    if(wrap||i<repeats-1)bands.push({length:gap,steps:1});
+  }
+  if(extra>0)bands.at(-1).length+=extra;
+  const length=bands.reduce((sum,band)=>sum+band.length,0),remaining=steps-bands.reduce((sum,band)=>sum+band.steps,0);
+  const shares=bands.map(band=>remaining*band.length/length);
+  shares.forEach((share,i)=>bands[i].steps+=Math.floor(share));
+  const spare=steps-bands.reduce((sum,band)=>sum+band.steps,0);
+  shares.map((share,i)=>({i,fraction:share%1})).sort((a,b)=>b.fraction-a.fraction).slice(0,spare).forEach(({i})=>bands[i].steps++);
+  const values=[0];let offset=0;
+  for(const band of bands){for(let i=1;i<=band.steps;i++)values.push(offset+band.length*i/band.steps);offset+=band.length;}
+  return values;
 }
 
 // Bilinear interpolation uses premultiplied engraving strength so transparent
@@ -76,22 +101,29 @@ export function sealStrength(source,u,v,engrave){
 
 export function sealMesh(feature){
   const error=sealError(feature);if(error)throw Error(error);
-  const {columns,rows,artRows,artHeight,marginTop,marginBottom,circumference,height}=sealGrid(feature),{source}=feature,radius=feature.diameter/2,sign=sealEffect(feature)==='emboss'?1:-1;
-  const count=columns*(rows+1),vertices=photoSeal(feature)?new Float32Array((count+2)*3):[],triangles=photoSeal(feature)?new Uint32Array(count*6):[],wrappedWidth=source.width*feature.around;
-  const levels=Array.from({length:rows+1},(_,j)=>{const artRow=j-Number(marginBottom>0);return artRow<0?0:artRow>artRows?height:marginBottom+artRow/artRows*artHeight;});
+  const {columns,rows,artRows,artHeight,marginTop,marginBottom,circumference,height,distances,axial}=sealGrid(feature),{source}=feature,radius=feature.diameter/2,sign=sealEffect(feature)==='emboss'?1:-1;
+  const gapAround=feature.gapAround??0,gapVertical=feature.gapVertical??0;
+  const count=columns*(rows+1),vertices=photoSeal(feature)?new Float32Array((count+2)*3):[],triangles=photoSeal(feature)?new Uint32Array(count*6):[],wrappedWidth=(source.width+gapAround)*feature.around;
+  const levels=Array.from({length:rows+1},(_,j)=>{const artRow=j-Number(marginBottom>0);return artRow<0?0:artRow>artRows?height:marginBottom+(axial?axial[artRow]:artRow/artRows*artHeight);});
   function reliefAt(i,j){
     const artRow=j-Number(marginBottom>0),blank=artRow<0||artRow>artRows||marginBottom>0&&artRow===0||marginTop>0&&artRow===artRows;
-    const distance=i/columns*circumference;
+    const distance=distances?distances[i]:i/columns*circumference;
     if(blank||distance>=wrappedWidth)return 0;
-    let u=(distance/source.width)%1;if(feature.mirror)u=1-u;
-    const fromTop=(artRows-artRow)/artRows*feature.vertical,v=artRow===0?1:fromTop%1;
+    const across=distance%(source.width+gapAround),fromTop=artHeight-(levels[j]-marginBottom),down=fromTop%(source.height+gapVertical);
+    // Both sides of a blank interval lie on the unmodified cylinder surface.
+    const epsilon=1e-8;
+    if(gapAround&&(across<epsilon||across>=source.width-epsilon))return 0;
+    if(gapVertical&&feature.vertical>1&&fromTop>epsilon&&fromTop<artHeight-epsilon&&(down<epsilon||down>=source.height-epsilon))return 0;
+    let u=gapAround?across/source.width:(distance/source.width)%1;if(feature.mirror)u=1-u;
+    const v=gapVertical&&feature.vertical>1?(artRow===0?1:down/source.height):(artRow===0?1:((artRows-artRow)/artRows*feature.vertical)%1);
     return feature.depth*sealStrength(source,u,v,feature.engrave);
   }
   let drafted=null;
   if(sign===1&&feature.draftAngle){
     const heights=new Float64Array(count);
     for(let j=0;j<=rows;j++)for(let i=0;i<columns;i++)heights[j*columns+i]=reliefAt(i,j);
-    drafted=draftSealHeights(heights,columns,levels,circumference/columns,feature.draftAngle);
+    const arcPitch=distances?Float64Array.from({length:columns},(_,i)=>distances[i+1]-distances[i]):circumference/columns;
+    drafted=draftSealHeights(heights,columns,levels,arcPitch,feature.draftAngle);
   }
   let vertexOffset=0,triangleOffset=0;
   const vertex=(x,y,z)=>{if(Array.isArray(vertices))vertices.push(x,y,z);else{vertices[vertexOffset++]=x;vertices[vertexOffset++]=y;vertices[vertexOffset++]=z;}};
@@ -100,7 +132,7 @@ export function sealMesh(feature){
     // Explicit boundary rings keep even sub-sample margins completely blank.
     // Blank bands add only axial rings, preserving the artwork's sampling pitch.
     for(let i=0;i<columns;i++){
-      const theta=i/columns*Math.PI*2,relief=drafted?drafted[j*columns+i]:reliefAt(i,j),r=radius+sign*relief;
+      const theta=distances?distances[i]/circumference*Math.PI*2:i/columns*Math.PI*2,relief=drafted?drafted[j*columns+i]:reliefAt(i,j),r=radius+sign*relief;
       vertex(r*Math.cos(theta),r*Math.sin(theta),levels[j]);
     }
   }
