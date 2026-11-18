@@ -3,11 +3,13 @@ import {drawingPaths} from './model3d-paths.js';
 import {readSTL,MAX_STL_BYTES,MAX_MODEL_TRIANGLES} from './model3d-stl.js';
 import {inspectChamfer,selectionContours,chamferLabel} from './model3d-chamfer-intent.js';
 import {sealArtwork,snapshotSealArtwork,sealMinimumDiameter,sealArtworkHeight,sealError,sealGrid,sealPixels,photoSeal,sealEffect} from './model3d-seal.js';
+import {cookieError} from './model3d-cookie.js';
+import {profileKey} from './model3d-links.js';
 import './model3d.css';
 
 export function installModel3D({paper,getPaths,getSelection,getModel,setModel,getUnit,finish,say}){
   const dialog=document.createElement('dialog');dialog.id='model3d-dialog';dialog.setAttribute('aria-labelledby','model3d-title');
-  const labels={select:'Select',extrude:'Extrude',join:'Join',cut:'Cut',shell:'Shell',chamfer:'Chamfer',fillet:'Fillet',texture:'Texture',seal:'Cylinder seal',stl:'Import STL'};
+  const labels={select:'Select',extrude:'Extrude',join:'Join',cut:'Cut',shell:'Shell',chamfer:'Chamfer',fillet:'Fillet',texture:'Texture',seal:'Cylinder seal',cookie:'Cookie cutter',stl:'Import STL'};
   dialog.innerHTML=`<div class="model3d-heading"><div><small>3D MODELING</small><h2 id="model3d-title">3D workspace</h2></div><button id="model3d-close" aria-label="Cancel 3D modeling">×</button></div>
     <div id="model3d-tools" role="toolbar" aria-label="Modeling tools">${Object.entries(labels).filter(([tool])=>tool!=='stl').map(([tool,label])=>`<button data-model-tool="${tool}" aria-pressed="false">${label}</button>`).join('')}<button id="model3d-import-stl">Import STL…</button><input id="model3d-stl-file" type="file" accept=".stl,model/stl,application/sla" hidden></div>
     <div class="model3d-layout">
@@ -28,6 +30,21 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
         <div id="model3d-tool-panel" hidden>
           <label>Name <input id="model3d-name" maxlength="100"></label>
           <label id="model3d-target-label">Target body <select id="model3d-target"></select></label>
+          <fieldset id="model3d-cookie" hidden><legend>Cookie cutter and emboss stamp</legend>
+            <label>Cut path <select id="model3d-cookie-cut"></select></label>
+            <div class="model3d-pair"><label>Wall thickness <input id="model3d-cookie-wallThickness" type="number" min="0.0001" step="any"></label><label>Cut height above base <input id="model3d-cookie-cutHeight" type="number" min="0.0001" step="any"></label></div>
+            <small>The wall grows outward from the cut outline. The inside edge follows the drawing.</small>
+            <div class="model3d-pair"><label>Base offset from cut path <input id="model3d-cookie-baseOffset" type="number" min="0" step="any"></label><label>Base thickness <input id="model3d-cookie-baseThickness" type="number" min="0.0001" step="any"></label></div>
+            <label>Base <select id="model3d-cookie-baseMode"><option value="solid">Complete solid base</option><option value="open">Cookie shape cut through</option></select></label>
+            <p class="model3d-help">The base is on the bottom, where you press. Its offset must support the full cutting-wall thickness.</p>
+            <strong>Emboss paths (optional)</strong><div id="model3d-cookie-emboss" class="model3d-cookie-choices" role="group" aria-label="Emboss paths"></div>
+            <div class="model3d-pair"><label>Emboss top below cutting edge <input id="model3d-cookie-embossSetback" type="number" min="0.0001" step="any"></label><label>Draft angle (° from vertical) <input id="model3d-cookie-draftAngle" type="number" min="0" max="60" step="any"></label></div>
+            <small>The filled top keeps its drawn shape. Draft widens it down to the base for easier release. Convert text and strokes to paths first.</small>
+            <label id="model3d-cookie-bridge-label">Support bridge width <input id="model3d-cookie-bridgeWidth" type="number" min="0.0001" step="any"></label>
+            <small id="model3d-cookie-bridge-help">An open base gets low bridges beneath emboss islands and internal cut walls. Bridges stay at base height.</small>
+            <p id="model3d-cookie-size" class="model3d-help" role="status"></p>
+            <small>Path geometry is saved with the cutter. Choose the updated drawing paths to refresh a design after editing it.</small>
+          </fieldset>
           <fieldset id="model3d-seal" hidden><legend>Wrapped cylinder seal</legend>
             <label>Artwork <select id="model3d-seal-source"></select></label>
             <canvas id="model3d-seal-artwork" width="256" height="128" aria-label="Seal artwork snapshot"></canvas>
@@ -111,6 +128,8 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   const extrude=document.createElement('button');extrude.id='extrude-path';extrude.textContent='Extrude…';document.querySelector('.object-actions').append(extrude);
   const factors={mm:1,in:25.4,px:MM_PER_PIXEL,pt:25.4/72};
   let artwork=[],sealSourceId='',sealAround=1,sealGapAround=0,sealSourceError='';
+  let cookieCutChoices=[],cookieEmbossChoices=[],cookieCutKey='',cookieEmbossKeys=[];
+  const cookieDimensions=['wallThickness','cutHeight','baseOffset','baseThickness','embossSetback','bridgeWidth'];
   let working=emptyModel(),catalog=[],pathIds=[],hiddenPaths=new Set(),hiddenBodies=new Set(),bodyId=null;
   let tool='select',draft=null,editingId=null,replacingProfile=false,edges=[],faces=[],edgeOptions=[],pickMode='bodies',previewing=false;
   let viewer=null,worker=null,sequence=0,latestId=0,inFlight=null,queued=null,timer=null,session=0,loading=false,exporting=false;
@@ -119,7 +138,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   let boundaryFilterBody=null,boundaryFilterTouched=false;
   const format=value=>String(Number((value/factors[unit]).toFixed(6)));
   const extrusionTool=()=>['extrude','join','cut'].includes(tool);
-  const createsBody=()=>['extrude','stl','seal'].includes(tool);
+  const createsBody=()=>['extrude','stl','seal','cookie'].includes(tool);
   const faceTool=()=>['shell','texture'].includes(tool);
   const busy=()=>loading||exporting||!!inFlight||!!queued||!!timer;
   const inputModel=()=>editingId?{...working,features:working.features.slice(0,working.features.findIndex(feature=>feature.id===editingId))}:working;
@@ -127,6 +146,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   function errorForTool(){
     if(!draft)return '';
     if(tool==='seal')return !draft.source&&sealSourceError||sealError(draft);
+    if(tool==='cookie')return cookieError(draft);
     if(extrusionTool()&&replacingProfile&&!pathIds.length)return 'Select one or more visible closed paths in the view or the path list.';
     if(extrusionTool()&&(!Number.isFinite(draft.height)||draft.height<=0||draft.height>10000||!Number.isFinite(draft.start)||Math.abs(draft.start)>10000||!Number.isFinite(draft.draft)||Math.abs(draft.draft)>60))return 'Enter a positive height, a valid start height, and draft between −60° and 60°.';
     if(!createsBody()&&!draft.target)return 'Select a target body.';
@@ -222,7 +242,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   }
   function setPickMode(mode){pickMode=mode;$('pick-mode').value=mode;viewer?.setPickMode(previewing?'none':mode);}
   function pickOptions(){
-    const options=['select','stl','seal'].includes(tool)?[['bodies','Bodies'],...(tool==='select'?[['paths','Drawing paths']]:[])]:extrusionTool()?[['paths','Drawing paths'],...(tool==='extrude'?[]:[['bodies','Target body']])]:faceTool()?[['faces',tool==='texture'?'Texture faces':'Opening faces']]:[['edges','Edges']];
+    const options=['select','stl','seal','cookie'].includes(tool)?[['bodies','Bodies'],...(tool==='select'?[['paths','Drawing paths']]:[])]:extrusionTool()?[['paths','Drawing paths'],...(tool==='extrude'?[]:[['bodies','Target body']])]:faceTool()?[['faces',tool==='texture'?'Texture faces':'Opening faces']]:[['edges','Edges']];
     $('pick-mode').replaceChildren(...options.map(([id,label])=>new Option(label,id)));
     setPickMode(options.some(([id])=>id===pickMode)?pickMode:options[0][0]);
   }
@@ -352,6 +372,42 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
     draft.mesh.vertices.forEach((value,index)=>{const axis=index%3;min[axis]=Math.min(min[axis],value);max[axis]=Math.max(max[axis],value);});
     $('import-summary').textContent=`${draft.mesh.triangles.length/3} triangles · ${min.map((value,axis)=>format((max[axis]-value)*draft.scale)).join(' × ')} ${unit}`;
   }
+  function prepareCookieChoices(feature){
+    const entries=catalog.filter(path=>path.profile&&!path.error).map(path=>({key:path.id,name:path.name.slice(0,100),profile:structuredClone(path.profile)}));
+    cookieCutChoices=entries.filter(entry=>entry.profile.length===1);cookieEmbossChoices=[...entries];cookieEmbossKeys=[];
+    const same=(a,b)=>a.name===b.name&&profileKey(a.profile)===profileKey(b.profile);
+    if(feature){
+      let cut=cookieCutChoices.find(entry=>same(entry,feature.cut));
+      if(!cut){cut={key:'saved-cut',...structuredClone(feature.cut)};cookieCutChoices.unshift(cut);}cookieCutKey=cut.key;
+      feature.emboss.forEach((shape,index)=>{let entry=cookieEmbossChoices.find(entry=>same(entry,shape));if(!entry){entry={key:`saved-emboss-${index}`,...structuredClone(shape)};cookieEmbossChoices.unshift(entry);}cookieEmbossKeys.push(entry.key);});
+    }else{
+      const selected=cookieCutChoices.filter(entry=>pathIds.includes(entry.key));
+      const span=entry=>{const points=entry.profile[0].outer.flat();return (Math.max(...points.map(p=>p[0]))-Math.min(...points.map(p=>p[0])))*(Math.max(...points.map(p=>p[1]))-Math.min(...points.map(p=>p[1])));};
+      const cut=selected.sort((a,b)=>span(b)-span(a))[0]||cookieCutChoices[0];cookieCutKey=cut?.key||'';
+      if(cut)draft.cut={name:cut.name,profile:structuredClone(cut.profile)};
+      cookieEmbossKeys=entries.filter(entry=>entry.key!==cookieCutKey&&pathIds.includes(entry.key)).map(entry=>entry.key);
+      draft.emboss=entries.filter(entry=>cookieEmbossKeys.includes(entry.key)).map(({name,profile})=>({name,profile:structuredClone(profile)}));
+    }
+  }
+  function showCookieSize(){
+    if(tool!=='cookie')return;
+    const embossed=draft.cutHeight-draft.embossSetback;
+    $('cookie-size').textContent=`Cutting top ${format(draft.baseThickness+draft.cutHeight)} ${unit} above the bottom`+(draft.emboss.length?` · emboss top ${format(draft.baseThickness+embossed)} ${unit} · ${draft.emboss.length} emboss paths.`:' · no emboss paths selected.');
+    $('cookie-bridge-label').hidden=$('cookie-bridge-help').hidden=draft.baseMode!=='open';
+  }
+  function showCookieFields(){
+    $('cookie-cut').replaceChildren(new Option('Choose a closed cut outline…',''),...cookieCutChoices.map(entry=>new Option(entry.name,entry.key)));$('cookie-cut').value=cookieCutKey;
+    for(const key of cookieDimensions)$('cookie-'+key).value=format(draft[key]);$('cookie-draftAngle').value=draft.draftAngle;$('cookie-baseMode').value=draft.baseMode;
+    const choices=$('cookie-emboss');choices.replaceChildren();
+    for(const entry of cookieEmbossChoices){
+      if(entry.key===cookieCutKey)continue;
+      const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=entry.key;input.checked=cookieEmbossKeys.includes(entry.key);
+      input.onchange=()=>{cookieEmbossKeys=[...choices.querySelectorAll('input:checked')].map(input=>input.value);draft.emboss=cookieEmbossChoices.filter(entry=>cookieEmbossKeys.includes(entry.key)).map(({name,profile})=>({name,profile:structuredClone(profile)}));parametersChanged();};
+      label.append(input,document.createTextNode(entry.name));choices.append(label);
+    }
+    if(!choices.children.length)choices.textContent='No other closed paths. Add design shapes in the drawing, then reopen 3D modeling.';
+    showCookieSize();
+  }
   function showSealDraft(){
     const embossed=sealEffect(draft)==='emboss';
     $('seal-draftAngle').disabled=!embossed;$('seal-draft-help').hidden=!embossed;
@@ -407,11 +463,11 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   }
   function showFields(){
     $('tool-title').textContent=(editingId?'Edit ':'')+labels[tool];$('tool-panel').hidden=!draft;
-    $('seal').hidden=tool!=='seal';$('extrusion').hidden=!extrusionTool();$('import').hidden=tool!=='stl';$('texture').hidden=tool!=='texture';$('shell').hidden=tool!=='shell';$('surface-selection').hidden=!faceTool();$('surface-legend').textContent=tool==='texture'?'Texture faces':'Opening faces';$('edges').hidden=!['chamfer','fillet'].includes(tool);$('target-label').hidden=!draft||createsBody();
-    const help={seal:'Wrap an image or path from the drawing into an engraved rolling seal. Set repeats, diameter and depth, then preview before applying. Insert images into the drawing first.',select:'Choose a modeling tool above, or select a path or body to inspect it. Use Hide to reach geometry behind other objects.',extrude:'Select drawing paths, set the height, then preview and apply the extrusion.',join:'Select drawing paths and a target body. The extrusion adds material to that body.',cut:'Select drawing paths and a target body. The extrusion removes material from that body.',shell:'Select opening faces on a body. Preview the wall thickness before applying the shell.',chamfer:'Select edges or coplanar chains, set their size, then preview the bevel.',fillet:'Select edges or coplanar chains, set their size, then preview the rounding.',texture:'Select flat surfaces, choose a raised or engraved pattern, then preview the printable geometry.',stl:'Import a closed STL as a solid. Preview and apply it, then choose Chamfer, Shell, Texture, or another modeling tool.'};
+    $('cookie').hidden=tool!=='cookie';$('seal').hidden=tool!=='seal';$('extrusion').hidden=!extrusionTool();$('import').hidden=tool!=='stl';$('texture').hidden=tool!=='texture';$('shell').hidden=tool!=='shell';$('surface-selection').hidden=!faceTool();$('surface-legend').textContent=tool==='texture'?'Texture faces':'Opening faces';$('edges').hidden=!['chamfer','fillet'].includes(tool);$('target-label').hidden=!draft||createsBody();
+    const help={cookie:'Choose a cut outline and optional filled emboss paths. Set the cutting wall, bottom base and emboss release draft, then Preview and Apply.',seal:'Wrap an image or path from the drawing into an engraved rolling seal. Set repeats, diameter and depth, then preview before applying. Insert images into the drawing first.',select:'Choose a modeling tool above, or select a path or body to inspect it. Use Hide to reach geometry behind other objects.',extrude:'Select drawing paths, set the height, then preview and apply the extrusion.',join:'Select drawing paths and a target body. The extrusion adds material to that body.',cut:'Select drawing paths and a target body. The extrusion removes material from that body.',shell:'Select opening faces on a body. Preview the wall thickness before applying the shell.',chamfer:'Select edges or coplanar chains, set their size, then preview the bevel.',fillet:'Select edges or coplanar chains, set their size, then preview the rounding.',texture:'Select flat surfaces, choose a raised or engraved pattern, then preview the printable geometry.',stl:'Import a closed STL as a solid. Preview and apply it, then choose Chamfer, Shell, Texture, or another modeling tool.'};
     $('tool-help').textContent=help[tool];
     for(const button of dialog.querySelectorAll('[data-model-tool]'))button.setAttribute('aria-pressed',String(button.dataset.modelTool===tool));
-    if(draft){$('name').value=draft.name;if(tool==='seal')showSealFields();else if(extrusionTool()){for(const key of ['height','start'])$(key).value=format(draft[key]);$('draft').value=draft.draft;}else if(tool==='shell'){$('shell-thickness').value=format(draft.thickness);$('shell-direction').value=draft.direction;}else if(tool==='stl'){$('stl-units').value=String(draft.scale);showImportSummary();}
+    if(draft){$('name').value=draft.name;if(tool==='seal')showSealFields();else if(tool==='cookie')showCookieFields();else if(extrusionTool()){for(const key of ['height','start'])$(key).value=format(draft[key]);$('draft').value=draft.draft;}else if(tool==='shell'){$('shell-thickness').value=format(draft.thickness);$('shell-direction').value=draft.direction;}else if(tool==='stl'){$('stl-units').value=String(draft.scale);showImportSummary();}
       else if(tool==='texture'){$('texture-pattern').value=draft.pattern;$('texture-mode').value=draft.mode;for(const key of ['width','spacing','depth'])$('texture-'+key).value=format(draft[key]);$('texture-angle').value=draft.angle;}
       else $('edge-size').value=format(draft.amount);}
     $('import-stl').setAttribute('aria-pressed',String(tool==='stl'));
@@ -421,7 +477,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
     $('features').replaceChildren();
     for(const feature of working.features){
       const row=document.createElement('li'),button=document.createElement('button'),remove=document.createElement('button');button.textContent=feature.name;button.setAttribute('aria-pressed',String(feature.id===editingId));
-      const detail=document.createElement('small');detail.textContent=feature.kind==='seal'?`Cylinder seal · ${sealEffect(feature)==='emboss'?'Emboss':'Deboss'} · ${feature.around} × ${feature.vertical} repeats · Ø ${format(feature.diameter)} ${unit}`:feature.kind==='extrusion'?`${{new:'Extrude',join:'Join',cut:'Cut'}[feature.operation]} · ${format(feature.height)} ${unit}`:feature.kind==='shell'?`Shell · ${format(feature.thickness)} ${unit} · ${feature.direction}`:feature.kind==='stl'?`STL · ${feature.mesh.triangles.length/3} triangles`:feature.kind==='texture'?`${feature.mode} ${feature.pattern} · ${format(feature.depth)} ${unit}`:`${feature.kind} · ${format(feature.amount)} ${unit}`;button.append(detail);button.onclick=()=>beginTool(feature.kind==='extrusion'?{new:'extrude',join:'join',cut:'cut'}[feature.operation]:feature.kind,feature);
+      const detail=document.createElement('small');detail.textContent=feature.kind==='cookie'?`Cookie cutter · ${feature.baseMode==='solid'?'Solid':'Open'} base · cut height ${format(feature.cutHeight)} ${unit} · ${feature.emboss.length} emboss paths`:feature.kind==='seal'?`Cylinder seal · ${sealEffect(feature)==='emboss'?'Emboss':'Deboss'} · ${feature.around} × ${feature.vertical} repeats · Ø ${format(feature.diameter)} ${unit}`:feature.kind==='extrusion'?`${{new:'Extrude',join:'Join',cut:'Cut'}[feature.operation]} · ${format(feature.height)} ${unit}`:feature.kind==='shell'?`Shell · ${format(feature.thickness)} ${unit} · ${feature.direction}`:feature.kind==='stl'?`STL · ${feature.mesh.triangles.length/3} triangles`:feature.kind==='texture'?`${feature.mode} ${feature.pattern} · ${format(feature.depth)} ${unit}`:`${feature.kind} · ${format(feature.amount)} ${unit}`;button.append(detail);button.onclick=()=>beginTool(feature.kind==='extrusion'?{new:'extrude',join:'join',cut:'cut'}[feature.operation]:feature.kind,feature);
       remove.textContent='×';remove.setAttribute('aria-label',`Remove ${feature.name}`);remove.onclick=()=>{cancelDraft(false);working=withoutFeature(working,feature.id);updateHistory();build(working,'idle');};row.append(button,remove);$('features').append(row);
     }
   }
@@ -431,10 +487,11 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
     if(tool==='select'){draft=null;showFields();updateHistory();build(working,'idle');return;}
     const id=feature?.id||crypto.randomUUID(),name=nameOverride||`${labels[tool]} ${working.features.filter(entry=>entry.kind===(extrusionTool()?'extrusion':tool)).length+1}`;
     sealSourceId='';sealSourceError='';
-    draft=feature?structuredClone(feature):tool==='seal'?{id,name,kind:'seal',operation:'new',target:null,source:null,surface:'photo',effect:'deboss',draftAngle:0,marginTop:0,marginBottom:0,gapAround:0,gapVertical:0,around:1,vertical:1,diameter:1,depth:1,detail:.1,engrave:'darkest',mirror:true}:tool==='stl'?{id,name,kind:'stl',operation:'new',target:null,scale:1,mesh}:tool==='texture'?{id,name,kind:'texture',target:bodyId,faces:[],pattern:'ribs',mode:'raised',depth:.5,width:1,spacing:4,angle:0}:extrusionTool()?{id,name,kind:'extrusion',operation:{extrude:'new',join:'join',cut:'cut'}[tool],target:tool==='extrude'?null:bodyId,profile:[],height:10,start:0,draft:0}:tool==='shell'?{id,name,kind:'shell',target:bodyId,thickness:1,direction:'inside',faces:[]}:{id,name,kind:tool,target:bodyId,amount:1,edges:[]};
+    draft=feature?structuredClone(feature):tool==='cookie'?{id,name,kind:'cookie',operation:'new',target:null,cut:null,emboss:[],wallThickness:1,cutHeight:15,baseOffset:3,baseThickness:2,baseMode:'solid',embossSetback:2,draftAngle:5,bridgeWidth:2}:tool==='seal'?{id,name,kind:'seal',operation:'new',target:null,source:null,surface:'photo',effect:'deboss',draftAngle:0,marginTop:0,marginBottom:0,gapAround:0,gapVertical:0,around:1,vertical:1,diameter:1,depth:1,detail:.1,engrave:'darkest',mirror:true}:tool==='stl'?{id,name,kind:'stl',operation:'new',target:null,scale:1,mesh}:tool==='texture'?{id,name,kind:'texture',target:bodyId,faces:[],pattern:'ribs',mode:'raised',depth:.5,width:1,spacing:4,angle:0}:extrusionTool()?{id,name,kind:'extrusion',operation:{extrude:'new',join:'join',cut:'cut'}[tool],target:tool==='extrude'?null:bodyId,profile:[],height:10,start:0,draft:0}:tool==='shell'?{id,name,kind:'shell',target:bodyId,thickness:1,direction:'inside',faces:[]}:{id,name,kind:tool,target:bodyId,amount:1,edges:[]};
     if(tool==='seal'){sealAround=draft.around;sealGapAround=draft.gapAround??0;}
     replacingProfile=!feature;if(feature){pathIds=[];bodyId=feature.target||feature.id;edges=(feature.edges||[]).map(key=>({body:feature.target,key}));faces=(feature.faces||[]).map(key=>({body:feature.target,key}));}
-    pickMode=extrusionTool()?'paths':faceTool()?'faces':['stl','seal'].includes(tool)?'bodies':'edges';
+    pickMode=extrusionTool()?'paths':faceTool()?'faces':['stl','seal','cookie'].includes(tool)?'bodies':'edges';
+    if(tool==='cookie')prepareCookieChoices(feature);
     if(tool==='seal'&&!feature){const entry=artwork.find(entry=>entry.selected)||artwork[0];if(entry)try{draft.source=snapshotSealArtwork(paper,entry,MM_PER_PIXEL);sealSourceId=entry.id;draft.diameter=sealMinimumDiameter(draft);}catch(error){sealSourceError=error.message;}}
     showFields();syncSelection();updateHistory();showObjects();status(tool==='stl'?'Choose the file units, then Preview and Apply import.':'Select the geometry for this tool.');build(inputModel(),'input');
   }
@@ -443,7 +500,7 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
   }
   function preview(){
     let model;try{model=candidate();}catch(error){status(error.message,true);enable();return;}
-    if(['stl','seal'].includes(tool))needsFit=true;
+    if(['stl','seal','cookie'].includes(tool))needsFit=true;
     previewing=true;resultValid=false;viewer?.setPickMode('none');populateInputs();showObjects();status('Building tool preview…');build(model,'preview');
   }
   function parametersChanged(){
@@ -472,6 +529,9 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
       if(Math.abs(draft.detail-minDetail)<factors[unit]*.000001)draft.detail=minDetail;
       if(draft.source&&Math.abs(draft.diameter-sealMinimumDiameter(draft))<factors[unit]*.000001)draft.diameter=sealMinimumDiameter(draft);
       draft.engrave=$('seal-engrave').value;draft.mirror=$('seal-mirror').checked;showSealSize();
+    }else if(tool==='cookie'){
+      for(const key of cookieDimensions){const input=$('cookie-'+key),previous=draft[key];draft[key]=input.value===format(previous)?previous:input.valueAsNumber*factors[unit];}
+      draft.baseMode=$('cookie-baseMode').value;draft.draftAngle=$('cookie-draftAngle').valueAsNumber;showCookieSize();
     }else if(extrusionTool()){draft.height=$('height').valueAsNumber*factors[unit];draft.start=$('start').valueAsNumber*factors[unit];draft.draft=$('draft').valueAsNumber;}
     else if(tool==='shell'){draft.thickness=$('shell-thickness').valueAsNumber*factors[unit];draft.direction=$('shell-direction').value;}
     else if(tool==='texture'){draft.pattern=$('texture-pattern').value;draft.mode=$('texture-mode').value;for(const key of ['width','spacing','depth'])draft[key]=$('texture-'+key).valueAsNumber*factors[unit];draft.angle=$('texture-angle').valueAsNumber;}
@@ -540,6 +600,12 @@ export function installModel3D({paper,getPaths,getSelection,getModel,setModel,ge
     finally{if(current===session&&dialog.open){loading=false;enable();}}
   };
   for(const button of dialog.querySelectorAll('[data-model-tool]'))button.onclick=()=>beginTool(button.dataset.modelTool);
+  $('cookie-cut').onchange=()=>{
+    cookieCutKey=$('cookie-cut').value;const choice=cookieCutChoices.find(entry=>entry.key===cookieCutKey);draft.cut=choice?{name:choice.name,profile:structuredClone(choice.profile)}:null;
+    cookieEmbossKeys=cookieEmbossKeys.filter(key=>key!==cookieCutKey);draft.emboss=cookieEmbossChoices.filter(entry=>cookieEmbossKeys.includes(entry.key)).map(({name,profile})=>({name,profile:structuredClone(profile)}));showCookieFields();parametersChanged();
+  };
+  for(const key of [...cookieDimensions,'draftAngle'])$('cookie-'+key).addEventListener('input',parametersChanged);
+  $('cookie-baseMode').onchange=parametersChanged;
   $('seal-refresh').onclick=()=>{const entry=refreshSealEntry();if(entry)chooseSealSource(entry.id,true);};
   $('seal-surface').onchange=parametersChanged;
   $('seal-photo-detail').onclick=()=>{$('seal-surface').value='photo';$('seal-detail').value=format(.05);parametersChanged();};

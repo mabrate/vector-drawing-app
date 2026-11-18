@@ -3,6 +3,7 @@
 import {validSTLMesh,MAX_MODEL_TRIANGLES} from './model3d-stl.js';
 import {CHAMFER_KINDS} from './model3d-chamfer-intent.js';
 import {sealError,sealGrid,MAX_SEAL_PIXELS,MAX_PHOTO_SEAL_CELLS} from './model3d-seal.js';
+import {cookieError} from './model3d-cookie.js';
 export const MM_PER_PIXEL=25.4/96;
 export const MAX_TREATMENT_EDGES=4000;
 export const MAX_SHELL_FACES=1000;
@@ -21,7 +22,13 @@ export function validModel(model){
   for(const feature of model.features){
     if(!feature||!identifier(feature.id)||ids.has(feature.id)||typeof feature.name!=='string'||feature.name.length>100)return false;
     ids.add(feature.id);
-    if(feature.kind==='seal'){
+    if(feature.kind==='cookie'){
+      if(feature.operation!=='new'||feature.target!==null||cookieError(feature))return false;
+      for(const shape of [feature.cut,...feature.emboss]){
+        if(!shape||typeof shape.name!=='string'||shape.name.length>100||!Array.isArray(shape.profile)||!shape.profile.length||shape.profile.length>100||!shape.profile.every(face=>face&&wire(face.outer)&&Array.isArray(face.holes)&&face.holes.length<=100&&face.holes.every(wire)))return false;
+      }
+      bodies.add(feature.id);
+    }else if(feature.kind==='seal'){
       if(feature.operation!=='new'||feature.target!==null||sealError(feature))return false;
       sealPixels+=feature.source.columns*feature.source.rows;bodies.add(feature.id);
       const grid=sealGrid(feature);sealCells+=grid.columns*(grid.rows+1);
