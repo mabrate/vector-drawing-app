@@ -1,9 +1,10 @@
 import {simplifyPath} from './simplify-path.js';
 // Repairs operate on path geometry; previews never replace the source artwork.
-export function installNodeTools({paper,art,getTool,getSelection,getNodes,setSelection,commit,say,nodePosition,detach}){
+export function installNodeTools({paper,art,getTool,getSelection,getNodes,setSelection,commit,say,nodePosition,detach,liveConstraints}){
  const artItemIndex=path=>{let item=path;while(item.parent&&item.parent!==art)item=item.parent;return item.index;};
  const paths=()=>getSelection().flatMap(i=>i instanceof paper.Path?[i]:i instanceof paper.CompoundPath?i.children:[]);
  const endpoints=()=>getNodes().filter(s=>s.path&&!s.path.closed&&(s===s.path.firstSegment||s===s.path.lastSegment));
+ const simplifiable=()=>paths().filter(path=>path.segments.length>2&&!liveConstraints.owns(path));
  const join=document.getElementById('join-nodes'),close=document.getElementById('close-path'),simplify=document.getElementById('simplify-path');
  const removeSegment=document.createElement('button');removeSegment.id='delete-segment';removeSegment.type='button';removeSegment.textContent='Delete segment';removeSegment.title='Remove the connection between two selected adjacent nodes';close.after(removeSegment);
  function segmentToDelete(){
@@ -30,14 +31,16 @@ export function installNodeTools({paper,art,getTool,getSelection,getNodes,setSel
  }
  nodeAlign.querySelectorAll('[data-node-align]').forEach(button=>button.onclick=()=>arrange(button.dataset.nodeAlign,false));
  nodeAlign.querySelectorAll('[data-node-distribute]').forEach(button=>button.onclick=()=>arrange(button.dataset.nodeDistribute,true));
- function sync(){const nodeMode=getTool()==='nodes';objects.hidden=nodeMode;nodeAlign.hidden=!nodeMode;const count=getNodes().length;document.getElementById('node-align-count').textContent=`${count} node${count===1?'':'s'} selected`;nodeAlign.querySelectorAll('[data-node-align]').forEach(button=>button.disabled=count<2);nodeAlign.querySelectorAll('[data-node-distribute]').forEach(button=>button.disabled=count<3);const ends=endpoints();join.disabled=getNodes().length!==2||ends.length!==2;close.disabled=!paths().some(p=>!p.closed&&p.segments.length>2);simplify.disabled=!paths().some(p=>p.segments.length>2);removeSegment.disabled=!segmentToDelete();}
+ function sync(){const nodeMode=getTool()==='nodes';objects.hidden=nodeMode;nodeAlign.hidden=!nodeMode;const count=getNodes().length;document.getElementById('node-align-count').textContent=`${count} node${count===1?'':'s'} selected`;nodeAlign.querySelectorAll('[data-node-align]').forEach(button=>button.disabled=count<2);nodeAlign.querySelectorAll('[data-node-distribute]').forEach(button=>button.disabled=count<3);const ends=endpoints();join.disabled=count!==2||ends.length!==2;join.title=join.disabled?'Shift-click or use Multiple to select two open-path endpoints':'Join selected endpoints';close.disabled=!paths().some(p=>!p.closed&&p.segments.length>2);simplify.disabled=!simplifiable().length;removeSegment.disabled=!segmentToDelete();}
  removeSegment.onclick=()=>{
   const target=segmentToDelete();if(!target)return;
   const {path,index}=target,segments=[...path.segments],modes=path.data.nodeModes||{},modeBySegment=new Map(segments.map(s=>[s,modes[s.index]]));
+  const bindings=liveConstraints.captureTopology(),mapped=new Map(),replacements=new Map();
   const replace=(item,originals)=>{
    item.removeSegments();item.closed=false;item.addSegments(originals.map(s=>s.clone()));
    item.firstSegment.handleIn=[0,0];item.lastSegment.handleOut=[0,0];
    item.data.nodeModes=Object.fromEntries(originals.flatMap((s,i)=>modeBySegment.get(s)===undefined?[]:[[i,modeBySegment.get(s)]]));
+   originals.forEach((segment,i)=>mapped.set(segment,item.segments[i]));
   };
   detach([segments[index],segments[(index+1)%segments.length]]);
   if(path.closed){
@@ -46,20 +49,35 @@ export function installNodeTools({paper,art,getTool,getSelection,getNodes,setSel
   }else{
    const second=path.clone({insert:false});second.data=structuredClone(path.data);path.parent.insertChild(path.index+1,second);
    replace(second,segments.slice(index+1));replace(path,segments.slice(0,index+1));
+   replacements.set(path,[path,second]);
    const selection=path.parent instanceof paper.CompoundPath?getSelection():[...getSelection(),second];
    setSelection(selection,[path.lastSegment,second.firstSegment]);
   }
-  commit();say('Segment deleted. Both endpoint nodes kept. Undo restores the connection.');
+  liveConstraints.rebindTopology(bindings,mapped,replacements);
+  if(commit())say('Segment deleted. Both endpoint nodes kept. Undo restores the connection.');
  };
- close.onclick=()=>{const targets=paths().filter(p=>!p.closed&&p.segments.length>2);detach(targets.flatMap(p=>p.segments));targets.forEach(p=>p.closed=true);commit();say(`Closed ${targets.length} path(s).`);};
- join.onclick=()=>{const ends=endpoints();if(getNodes().length!==2||ends.length!==2)return;const [a,b]=ends;if(a.path===b.path){detach([a,b]);a.path.closed=true;commit();say('Joined endpoints to close the path.');return;}
+ close.onclick=()=>{const targets=paths().filter(p=>!p.closed&&p.segments.length>2),bindings=liveConstraints.captureTopology();detach(targets.flatMap(p=>p.segments));targets.forEach(p=>p.closed=true);liveConstraints.rebindTopology(bindings);if(commit())say(`Closed ${targets.length} path(s).`);};
+ join.onclick=()=>{const ends=endpoints();if(getNodes().length!==2||ends.length!==2)return;const [a,b]=ends,bindings=liveConstraints.captureTopology();if(a.path===b.path){detach([a,b]);a.path.closed=true;liveConstraints.rebindTopology(bindings);if(commit())say('Joined endpoints to close the path.');return;}
   // Bake both transforms into a new path before joining, preserving curve handles.
   const world=p=>new paper.Path({insert:false,segments:p.segments.map(s=>{const point=nodePosition(s);return new paper.Segment(point,nodePosition(s,'handleIn').subtract(point),nodePosition(s,'handleOut').subtract(point));})});
   const modes=p=>p.segments.map(s=>p.data.nodeModes?.[s.index]||(s.isSmooth()?'round':'corner'));const firstModes=modes(a.path),secondModes=modes(b.path),first=world(a.path),second=world(b.path);first.style=a.path.style;if(a===a.path.firstSegment){first.reverse();firstModes.reverse();}if(b===b.path.lastSegment){second.reverse();secondModes.reverse();}first.data.nodeModes=[...firstModes,...secondModes];
   first.lastSegment.handleOut=[0,0];second.firstSegment.handleIn=[0,0];first.addSegments(second.segments.map(s=>s.clone()));second.remove();
   // Coincident endpoints can share one anchor without changing either curve.
-  const index=a.path.segments.length-1,left=first.segments[index],right=first.segments[index+1];if(left.point.getDistance(right.point)<1e-7){left.handleOut=right.handleOut.clone();right.remove();first.data.nodeModes.splice(index+1,1);}
-  const insertion=artItemIndex(a.path);detach([a,b]);const roots=[...new Set([a.path.parent,b.path.parent])];a.path.remove();b.path.remove();for(const root of roots)if(root instanceof paper.CompoundPath&&!root.children.length)root.remove();art.insertChild(Math.min(insertion,art.children.length),first);setSelection([first],[]);commit();say('Joined endpoints. The new path uses the first path’s style.');
+  const firstSource=a.path,secondSource=b.path;
+  const firstNodes=[...firstSource.segments],secondNodes=[...secondSource.segments];
+  if(a===firstSource.firstSegment)firstNodes.reverse();
+  if(b===secondSource.lastSegment)secondNodes.reverse();
+  const originals=[...firstNodes,...secondNodes];
+  const mapped=new Map(originals.map((segment,index)=>[segment,first.segments[index]]));
+  const index=firstNodes.length-1,left=first.segments[index],right=first.segments[index+1];
+  if(left.point.getDistance(right.point)<1e-7){left.handleOut=right.handleOut.clone();mapped.set(b,left);right.remove();first.data.nodeModes.splice(index+1,1);}
+  const insertion=artItemIndex(firstSource);detach([a,b]);const roots=[...new Set([firstSource.parent,secondSource.parent])];
+  firstSource.remove();secondSource.remove();
+  for(const root of roots)if(root instanceof paper.CompoundPath&&!root.children.length)root.remove();
+  art.insertChild(Math.min(insertion,art.children.length),first);
+  liveConstraints.rebindTopology(bindings,mapped,new Map([[firstSource,[first]],[secondSource,[first]]]));
+  setSelection([first],[]);
+  if(commit())say('Joined endpoints. The new path uses the first path’s style.');
  };
  const dialog=document.createElement('dialog');dialog.id='simplify-dialog';dialog.setAttribute('aria-labelledby','simplify-title');dialog.innerHTML='<h2 id="simplify-title">Simplify paths</h2><p>Pink shows the proposed outline over your original. Increase tolerance to remove more detail while keeping sharp corners.</p><label for="simplify-tolerance" class="simplify-slider-label">Tolerance <output id="simplify-tolerance-value" for="simplify-tolerance">1 px</output></label><input id="simplify-tolerance" type="range" min="0" max="10" step="0.1" value="1" aria-describedby="simplify-tolerance-help"><small id="simplify-tolerance-help">Higher values allow more outline change, measured in document pixels.</small><output id="simplify-count" aria-live="polite" aria-label="Node count: original to preview"></output><p id="simplify-result-help"></p><div class="export-actions"><button id="simplify-cancel">Cancel</button><button id="simplify-apply" class="primary">Apply</button></div>';document.body.append(dialog);
  let targets=[],copies=[],preview=null;
@@ -68,7 +86,7 @@ export function installNodeTools({paper,art,getTool,getSelection,getNodes,setSel
   for(const path of targets){before+=path.segments.length;const scale=Math.max(path.globalMatrix.transform(new paper.Point(1,0)).subtract(path.globalMatrix.transform(new paper.Point(0,0))).length,path.globalMatrix.transform(new paper.Point(0,1)).subtract(path.globalMatrix.transform(new paper.Point(0,0))).length),copy=simplifyPath(path,tolerance/Math.max(scale,1e-8));copies.push(copy);after+=copy.segments.length;const outline=copy.clone({insert:false});outline.matrix=path.globalMatrix.clone();outline.fillColor=null;outline.strokeColor='#ed286e';outline.strokeWidth=2/paper.view.zoom;outline.strokeScaling=false;preview.addChild(outline);}
   art.activate();document.getElementById('simplify-tolerance-value').textContent=`${Number(tolerance.toFixed(1))} px`;document.getElementById('simplify-count').textContent=`Nodes: ${before} → ${after}`;document.getElementById('simplify-result-help').textContent=tolerance===0?'0 px keeps the original outline.':after<before?`${before-after} node${before-after===1?'':'s'} removed in the preview.`:'No nodes can be removed at this tolerance while preserving sharp corners.';document.getElementById('simplify-apply').disabled=after>=before;paper.view.update();
  }
- simplify.onclick=()=>{targets=paths().filter(p=>p.segments.length>2);if(!targets.length)return;dialog.showModal();update();};
+ simplify.onclick=()=>{targets=simplifiable();if(!targets.length)return;dialog.showModal();update();};
  document.getElementById('simplify-tolerance').oninput=update;
  document.getElementById('simplify-cancel').onclick=()=>dialog.close();dialog.addEventListener('close',cleanup);
  document.getElementById('simplify-apply').onclick=()=>{detach(targets.flatMap(p=>p.segments));targets.forEach((path,i)=>{path.copyContent(copies[i]);path.data.nodeModes=structuredClone(copies[i].data.nodeModes||{});});setSelection(getSelection(),[]);dialog.close();cleanup();commit();say('Simplified paths. Undo restores the original nodes.');};

@@ -118,6 +118,9 @@ header{display:contents}header>div{display:none}header nav{display:none;position
 .toolbar-scroll-frame.can-scroll-left::before,.toolbar-scroll-frame.can-scroll-right::after{opacity:1}
 .context .stack-controls,.context .snap-dropdown,.context #page-settings,.context #dimensions-tool{border-left:1px solid #d8e0dc;padding-left:9px;margin-left:3px}
 .context>.stack-controls{flex:0 0 auto;margin-left:auto}
+.context>.constraint-controls{display:flex;align-items:center;gap:6px;flex:none;font-size:12px}
+#pen-constraint{min-height:40px;padding:6px;border:1px solid #ccd8d5;border-radius:8px;background:white;color:#203c43;font:inherit}
+@media(any-pointer:coarse){#pen-constraint{min-height:44px;font-size:16px}}
 .context .object-actions{border:0;padding-left:0;gap:0}
 .toolbar-icon-group{display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .toolbar-icon-group+.toolbar-icon-group{border-left:1px solid #d8e0dc;padding-left:9px;margin-left:9px}
