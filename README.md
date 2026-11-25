@@ -116,9 +116,9 @@ To make a drop, select a circle or ellipse and choose **Add pointed tip**. Tap o
 
 In **Nodes**, select the end of an existing straight line and choose **Constrain tangent**, then choose a contact on a curve. For an anchor where a line already meets a curve, the same action aligns the curve handle at the join. Teal rings mark constrained anchors. Select a marked anchor and choose **Remove tangent** to edit it freely. Tangents are saved in editable SVGs and browser recovery.
 
-**Snap** enables an 8-screen-pixel tolerance for object edges, centers, artboard edges/centers, and path anchors. Pink guides show alignment. Moving objects displays purple gap measurements in the selected units; a shape between two others can snap to equal spacing. Guides are temporary and never included in SVG exports.
+**Snap** enables snapping within 8 screen pixels. When moving objects, **Edges** aligns corresponding sides and snaps nearby facing sides together. **Centers** aligns centers and lets a shape between two others snap to equal spacing. In **Nodes** and **Pen**, **Edges** snaps anchors to path outlines and **Nodes** snaps them to existing anchors, including corners and endpoints. The Pen shows a pink ring before placing a snapped anchor, including the first point of a new path. Pink lines show alignment, and purple lines measure gaps in the selected units. Guides are temporary and stay out of SVG exports.
 
-Select: drag empty canvas to select fully enclosed objects. Hold **Shift before dragging** to start an additive selection box anywhere over artwork, including another shape’s fill or outline. Only fully enclosed objects are added; the shape under the starting point is not automatically selected or moved. Shift-click still adds/removes individual objects, and Shift-click on empty space keeps the current selection. Select multiple also adds to the selection. Resize and rotation handles keep their usual modifier behavior. Eight handles resize the selected object or selection; corners resize both axes, edge handles resize one axis. Double-click an anchor in Nodes mode (double-tap on touch) to toggle smooth/corner. Snapping holds its current target through small movements to prevent rapid switching between nearby guides.
+Select: drag empty canvas to select fully enclosed objects. Hold **Shift before dragging** to start an additive selection box anywhere over artwork, including another shape’s fill or outline. Only fully enclosed objects are added; the shape under the starting point is not automatically selected or moved. Shift-click still adds/removes individual objects, and Shift-click on empty space keeps the current selection. Select multiple also adds to the selection. Resize and rotation handles keep their usual modifier behavior. Eight handles resize the selected object or selection; corners resize both axes, edge handles resize one axis. Double-click an anchor in Nodes mode (double-tap on touch) to toggle smooth/corner. Object alignment holds its current target through small movements to prevent rapid switching between nearby guides.
 
 ## Paper size, dimensions, and shortcuts
 
@@ -165,7 +165,7 @@ On a trackpad, scroll with two fingers to pan horizontally or vertically over th
 
 ## Top toolbar and style controls
 
-Toolbar icons open Fill and Outline, Align and Distribute, or Dimensions on the right. Snapping remains in the toolbar; the tool name and hint are below it. Alignment buttons have named tooltips. Snapping can be enabled globally or limited to edges, centers/equal spacing, and path anchors.
+Toolbar icons open Fill and Outline, Align and Distribute, or Dimensions on the right. The tool name and hint appear below the toolbar. Alignment buttons have named tooltips. Find the snapping controls under **File → Settings → Snapping**.
 
 Both color pickers show colored slider tracks: the hue spectrum, saturation from gray to full color at the chosen hue/lightness, and lightness from black through the chosen color to white. Gradients update as you adjust the sliders.
 
