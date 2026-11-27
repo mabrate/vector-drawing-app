@@ -33,11 +33,16 @@ async function state(page) {
     const [ ,art,overlay,penOverlay] = paper.project.layers;
     const xy = p=>[p.x,p.y];
     const pen = penOverlay.getItem({name:'pen-preview'});
+    const visible = overlay.children.filter(item=>item.visible);
     return {
       paths:art.children.map(path=>path.segments.map(segment=>xy(path.localToGlobal(segment.point)))),
       bounds:art.children.map(({bounds:r})=>({left:r.left,right:r.right,top:r.top})),
       contacts:[...overlay.children,...penOverlay.children].filter(item=>item.data.snapContact).map(item=>xy(item.bounds.center)),
-      preview:pen?xy(pen.lastSegment.point):null
+      preview:pen?xy(pen.lastSegment.point):null,
+      resizeHandles:visible.filter(item=>item.fillColor?.toCSS(true)==='#ffffff'&&item.strokeColor?.toCSS(true)==='#267d81').length,
+      rotationHandle:visible.some(item=>item.fillColor?.toCSS(true)==='#c9f278'),
+      dashedBoxes:visible.filter(item=>item.closed&&item.dashArray.length).length,
+      cornerMarks:visible.filter(item=>item.segments?.length===3&&!item.closed).map(item=>item.strokeColor.toCSS(true))
     };
   });
 }
@@ -46,13 +51,33 @@ test('facing rectangle sides snap flush even when a center is closer to the edge
   await load(page,'<path fill="orange" d="M360 220h160v100H360z"/><path fill="blue" d="M150 220h16v40h-16z"/>');
   await move(page,158,240);
   await page.mouse.down();
+  expect(await state(page)).toMatchObject({resizeHandles:8,rotationHandle:true,dashedBoxes:0});
   await move(page,360,243);
-  const touching = (await state(page)).bounds;
+  const drag = await state(page), touching = drag.bounds;
   expect(touching[1].right).toBeCloseTo(touching[0].left,6);
   expect(touching[1].top).toBeCloseTo(touching[0].top,6);
+  expect(drag).toMatchObject({resizeHandles:0,rotationHandle:false,dashedBoxes:0,cornerMarks:[]});
+  expect(drag.contacts).toEqual([[360,220]]);
   await move(page,320,243);
   await page.mouse.up();
-  expect((await state(page)).bounds[1].right).toBeCloseTo(328,2);
+  const released = await state(page);
+  expect(released.bounds[1].right).toBeCloseTo(328,2);
+  expect(released).toMatchObject({resizeHandles:8,rotationHandle:true,dashedBoxes:0,contacts:[]});
+});
+
+test('multi-selection uses short corner marks and keeps the green alignment reference',async({page})=>{
+  await load(page,'<path d="M160 220h90v100h-90z"/><path d="M490 220h90v100h-90z"/>');
+  await page.keyboard.press('Control+a');
+  expect(await state(page)).toMatchObject({
+    resizeHandles:8,rotationHandle:true,dashedBoxes:0,
+    cornerMarks:['#267d81','#267d81','#708e28','#708e28']
+  });
+  await move(page,200,260);
+  await page.mouse.down();
+  await move(page,230,300);
+  expect(await state(page)).toMatchObject({resizeHandles:0,rotationHandle:false,cornerMarks:[],dashedBoxes:0});
+  await page.mouse.up();
+  expect((await state(page)).cornerMarks).toEqual(['#267d81','#267d81','#708e28','#708e28']);
 });
 
 test('facing sides on distant rows do not create a contact snap',async({page})=>{

@@ -1,10 +1,10 @@
 // Keep editor handles alive between frames; none of these items belong to artwork.
 export function createInteractionOverlay(paper,layer){
  const slots=[],styles=new WeakMap();let cursor=0;
- function acquire(kind,create){
+ function acquire(kind,create,visible=true){
   const index=cursor++;let slot=slots[index];
   if(slot?.kind!==kind){slot?.item.remove();slot={kind,item:create()};slots[index]=slot;layer.insertChild(index,slot.item);}
-  slot.item.visible=true;slot.item.data={};return slot.item;
+  slot.item.visible=visible;slot.item.data={};return slot.item;
  }
  function style(item,options){
   const next={fillColor:null,strokeColor:null,strokeWidth:1,dashArray:[],strokeCap:'butt',strokeJoin:'miter',...options},previous=styles.get(item);
@@ -15,17 +15,20 @@ export function createInteractionOverlay(paper,layer){
  return {
   begin(){cursor=0;},
   end(){for(let i=cursor;i<slots.length;i++)slots[i].item.remove();slots.length=cursor;},
-  rectangle({rectangle,point,size,...options}){
+  rectangle({rectangle,point,size,visible=true,...options}){
+   const item=acquire('rectangle',()=>new paper.Path({segments:[[0,0],[0,0],[0,0],[0,0]],closed:true,insert:false}),visible);
+   if(!visible)return item;
    const box=rectangle?new paper.Rectangle(rectangle):new paper.Rectangle(point,size);
-   const item=acquire('rectangle',()=>new paper.Path({segments:[[0,0],[0,0],[0,0],[0,0]],closed:true,insert:false}));
    [box.topLeft,box.topRight,box.bottomRight,box.bottomLeft].forEach((p,i)=>{if(!item.segments[i].point.equals(p))item.segments[i].point=p;});return style(item,options);
   },
-  circle({center,radius,...options}){
-   const item=acquire('circle',()=>new paper.Path.Circle({center:[0,0],radius:1,insert:false}));
+  circle({center,radius,visible=true,...options}){
+   const item=acquire('circle',()=>new paper.Path.Circle({center:[0,0],radius:1,insert:false}),visible);
+   if(!visible)return item;
    const bounds=new paper.Rectangle(new paper.Point(center).subtract([radius,radius]),new paper.Size(radius*2,radius*2));if(!item.bounds.equals(bounds))item.bounds=bounds;return style(item,options);
   },
-  line({from,to,...options}){
-   const item=acquire('line',()=>new paper.Path({segments:[[0,0],[0,0]],insert:false}));
+  line({from,to,visible=true,...options}){
+   const item=acquire('line',()=>new paper.Path({segments:[[0,0],[0,0]],insert:false}),visible);
+   if(!visible)return item;
    if(!item.firstSegment.point.equals(from))item.firstSegment.point=from;if(!item.lastSegment.point.equals(to))item.lastSegment.point=to;return style(item,options);
   },
   path({segments,closed=false,...options}){
